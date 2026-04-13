@@ -28,6 +28,8 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
   populateLoweringONNXReduceMeanOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
   populateLoweringONNXGemmOpToTOSAPattern(target, patterns, typeConverter, ctx);
+  populateLoweringONNXMatMulOpToTOSAPattern(
+      target, patterns, typeConverter, ctx);
   populateLoweringONNXSoftmaxOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
   populateLoweringONNXConvOpToTOSAPattern(target, patterns, typeConverter, ctx);
