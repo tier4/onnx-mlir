@@ -126,10 +126,9 @@ private:
     // rank > 3: fold leading dims into a single batch dim.
     auto batch = staticDimProduct(shape, 0, rank - 2);
     if (failed(batch)) {
-      rewriter.notifyMatchFailure(op,
+      return rewriter.notifyMatchFailure(op,
           Twine("dynamic leading dims on operand ") + operandName +
               " (rank > 3) not yet supported");
-      return failure();
     }
     return reshapeTo3D(x, elem, {*batch, R, C}, loc, rewriter);
   }
@@ -159,9 +158,8 @@ private:
       return std::make_pair(a3d,
           tileBatch3D(b3d, bType.getElementType(), batchA, loc, rewriter));
 
-    rewriter.notifyMatchFailure(op,
+    return rewriter.notifyMatchFailure(op,
         "MatMul batch dims are not broadcast-compatible for TOSA lowering");
-    return failure();
   }
 
   /// Transform both inputs into 3-D tensors with matching batch dimensions,
