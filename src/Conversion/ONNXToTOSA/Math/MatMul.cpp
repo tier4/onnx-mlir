@@ -134,9 +134,8 @@ private:
   }
 
   /// Given two 3-D operands, make their batch dims agree.  Equal batches
-  /// pass through; a static batch of 1 on one side is tiled to match the
-  /// other.  Anything else (mismatched non-1 batches, or batch=1 facing a
-  /// dynamic batch we cannot tile to) is an unsupported broadcast.
+  /// pass through; a batch of 1 on one side is tiled to match the other.
+  /// Anything else (mismatched non-1 batches) is an unsupported broadcast.
   FailureOr<std::pair<Value, Value>> reconcileBatchDims(ONNXMatMulOp op,
       Value a3d, Value b3d, ConversionPatternRewriter &rewriter,
       Location loc) const {
@@ -150,11 +149,11 @@ private:
     if (!dynA && !dynB && batchA == batchB)
       return std::make_pair(a3d, b3d);
 
-    if (batchA == 1 && !dynB)
+    if (batchA == 1)
       return std::make_pair(
           tileBatch3D(a3d, aType.getElementType(), batchB, loc, rewriter),
           b3d);
-    if (batchB == 1 && !dynA)
+    if (batchB == 1)
       return std::make_pair(a3d,
           tileBatch3D(b3d, bType.getElementType(), batchA, loc, rewriter));
 
