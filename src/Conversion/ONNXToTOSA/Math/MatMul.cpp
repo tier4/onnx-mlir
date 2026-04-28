@@ -50,10 +50,27 @@ public:
       return rewriter.notifyMatchFailure(
           op, "TOSA MatMul lowering requires rank >= 2 inputs");
 
+    // Run the matmul shape helper to obtain rank-aligned per-axis dim info
+    // for both operands.  The helper pads each operand's leading dims with
+    // 1s up to a common rank and propagates literal values from one operand
+    // to the other when shape inference can disambiguate them, sparing us
+    // from doing the alignment by hand here.
+    //
+    // Use the analysis-mode IndexExprBuilder + dim-analysis mode so the
+    // helper never tries to materialize runtime shape ops (which our target
+    // dialect set wouldn't legalize) or rewrite operand types.
+    IndexExprBuilderForAnalysis createIE(loc);
+    ONNXMatMulOpShapeHelper shapeHelper(op, {}, &createIE);
+    shapeHelper.setDimAnalysisMode();
+    if (failed(shapeHelper.computeShape()))
+      return rewriter.notifyMatchFailure(op, "MatMul shape helper failed");
+    SmallVector<int64_t> aPadded = toShape(shapeHelper.aDims);
+    SmallVector<int64_t> bPadded = toShape(shapeHelper.bDims);
+
     // Step 1: normalize both inputs to 3-D, using the result type's
     // leading dims as the broadcast target.
-    auto normalized = normalizeInputsTo3D(
-        op, A, B, aType, bType, resultType.getShape(), rewriter, loc);
+    auto normalized = normalizeInputsTo3D(op, A, B, aType, bType, aPadded,
+        bPadded, resultType.getShape(), rewriter, loc);
     if (failed(normalized))
       return failure();
     auto [a3d, b3d] = *normalized;
@@ -139,36 +156,40 @@ private:
     return true;
   }
 
+  /// Convert a shape-helper IndexExpr dim list to int64_t shape values:
+  /// literal dims keep their value, runtime dims become kDynamic.
+  static SmallVector<int64_t> toShape(ArrayRef<IndexExpr> dims) {
+    SmallVector<int64_t> r;
+    r.reserve(dims.size());
+    for (const IndexExpr &d : dims)
+      r.push_back(d.isLiteral() ? d.getLiteral() : kDyn);
+    return r;
+  }
+
   /// Broadcast \p x's leading (batch) dims to \p batchShape and fold them
   /// into one, producing a 3-D tensor [batchProduct, innerR, innerC].
-  /// Returns nullptr (with notifyMatchFailure already called) on unsupported
-  /// shapes.
+  /// \p paddedShape is the operand's shape after rank-padding by the matmul
+  /// shape helper (rank == batchShape.size() + 2; the trailing two entries
+  /// are innerR and innerC).  Returns nullptr (with notifyMatchFailure
+  /// already called) on unsupported shapes.
   Value broadcastAndFold(ONNXMatMulOp op, Value x, RankedTensorType xType,
-      ArrayRef<int64_t> batchShape, int64_t innerR, int64_t innerC,
+      ArrayRef<int64_t> paddedShape, ArrayRef<int64_t> batchShape,
       ConversionPatternRewriter &rewriter, Location loc) const {
     int64_t batchRank = batchShape.size();
+    int64_t paddedRank = paddedShape.size(); // = batchRank + 2
+    int64_t innerR = paddedShape[batchRank];
+    int64_t innerC = paddedShape[batchRank + 1];
     int64_t rank = xType.getRank();
-    int64_t leadRank = rank - 2;
     Type elem = xType.getElementType();
     auto origShape = xType.getShape();
-
-    // Aligned shape: prepend 1s so the operand has rank batchRank + 2.
-    SmallVector<int64_t> aligned;
-    aligned.reserve(batchRank + 2);
-    for (int64_t i = 0; i < batchRank - leadRank; ++i)
-      aligned.push_back(1);
-    for (int64_t i = 0; i < leadRank; ++i)
-      aligned.push_back(origShape[i]);
-    aligned.push_back(innerR);
-    aligned.push_back(innerC);
 
     // Per-axis tile multiples for the batch portion.  TOSA tile takes
     // a constant multiples shape, so any required tile factor must be static.
     bool needTile = false;
     bool allBatchOnes = batchRank > 0;
-    SmallVector<int64_t> multiples(batchRank + 2, 1);
+    SmallVector<int64_t> multiples(paddedRank, 1);
     for (int64_t i = 0; i < batchRank; ++i) {
-      int64_t a = aligned[i];
+      int64_t a = paddedShape[i];
       int64_t b = batchShape[i];
       if (a != 1)
         allBatchOnes = false;
@@ -248,35 +269,34 @@ private:
 
     // General case: align rank, tile per-axis, fold leading dims.
     Value alignedV =
-        (rank == batchRank + 2) ? x : reshapeTo(x, elem, aligned, loc, rewriter);
+        (rank == paddedRank) ? x : reshapeTo(x, elem, paddedShape, loc, rewriter);
     Value tiled = tileWithMultiples(alignedV, elem, multiples, loc, rewriter);
     return reshapeTo(tiled, elem, folded3D, loc, rewriter);
   }
 
   /// Transform both inputs into 3-D tensors with matching batch dimensions,
-  /// ready for tosa.matmul.  Calls notifyMatchFailure on unsupported cases.
+  /// ready for tosa.matmul.  \p aPadded and \p bPadded come from the matmul
+  /// shape helper (each has rank == max(aRank, bRank, 2), with leading dims
+  /// padded by 1).  Calls notifyMatchFailure on unsupported cases.
   FailureOr<std::pair<Value, Value>> normalizeInputsTo3D(ONNXMatMulOp op,
       Value A, Value B, RankedTensorType aType, RankedTensorType bType,
+      ArrayRef<int64_t> aPadded, ArrayRef<int64_t> bPadded,
       ArrayRef<int64_t> resultShape, ConversionPatternRewriter &rewriter,
       Location loc) const {
-    int64_t aRank = aType.getRank();
-    int64_t bRank = bType.getRank();
-    auto aShape = aType.getShape();
-    auto bShape = bType.getShape();
     Type aElem = aType.getElementType();
     Type bElem = bType.getElementType();
-    int64_t M = aShape[aRank - 2];
-    int64_t Ka = aShape[aRank - 1];
-    int64_t Kb = bShape[bRank - 2];
-    int64_t N = bShape[bRank - 1];
+    int64_t paddedRank = aPadded.size();
+    int64_t Ka = aPadded[paddedRank - 1];
+    int64_t Kb = bPadded[paddedRank - 2];
+    int64_t N = bPadded[paddedRank - 1];
 
     // Fast path: B is a 2-D weight.  Fold all of A's non-K dims into one
     // flat row dim so both operands stay at batch = 1 and we avoid tiling
     // the weight.  A's leading dims may include dynamic dims — they fold
     // into a single dynamic dim, encoded as -1 in the const_shape.  Each
     // reshape's target must have at most one dynamic dim.
-    if (bRank == 2 && aRank > 2) {
-      int64_t flatM = dimProduct(aShape.drop_back(1));
+    if (bType.getRank() == 2 && aType.getRank() > 2) {
+      int64_t flatM = dimProduct(aPadded.drop_back(1));
       SmallVector<int64_t, 3> aFold = {1, flatM, Ka};
       SmallVector<int64_t, 3> bFold = {1, Kb, N};
       if (countDynamic(aFold) <= 1 && countDynamic(bFold) <= 1) {
@@ -291,11 +311,11 @@ private:
     ArrayRef<int64_t> batchShape = resultShape.drop_back(2);
 
     Value a3d =
-        broadcastAndFold(op, A, aType, batchShape, M, Ka, rewriter, loc);
+        broadcastAndFold(op, A, aType, aPadded, batchShape, rewriter, loc);
     if (!a3d)
       return failure();
     Value b3d =
-        broadcastAndFold(op, B, bType, batchShape, Kb, N, rewriter, loc);
+        broadcastAndFold(op, B, bType, bPadded, batchShape, rewriter, loc);
     if (!b3d)
       return failure();
     return std::make_pair(a3d, b3d);
