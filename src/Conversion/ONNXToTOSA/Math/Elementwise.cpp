@@ -197,8 +197,9 @@ public:
           op, "ONNXAtanOp lowering to TOSA requires a ranked tensor input");
     Type elementType = inputType.getElementType();
     if (!isTOSAFloat(elementType))
-      return rewriter.notifyMatchFailure(
-          op, "ONNXAtanOp lowering to TOSA only supports f32 element types");
+      return rewriter.notifyMatchFailure(op,
+          "ONNXAtanOp lowering to TOSA only supports f32/f16/bf16 element "
+          "types");
 
     Type outputType = op.getType();
     auto i1ResultType =
@@ -211,21 +212,25 @@ public:
 
     TosaBuilder tosaBuilder(rewriter, loc);
 
-    Value zero = tosaBuilder.getSplattedConst(0.0f, splatShape);
-    Value one = tosaBuilder.getSplattedConst(1.0f, splatShape);
-    Value sqrt2m1 =
-        tosaBuilder.getSplattedConst(0.41421356237309515f, splatShape);
-    Value piOver2 =
-        tosaBuilder.getSplattedConst(1.5707963267948966f, splatShape);
-    Value piOver4 =
-        tosaBuilder.getSplattedConst(0.7853981633974483f, splatShape);
+    Value zero = tosaBuilder.getSplattedConst(0.0f, elementType, splatShape);
+    Value one = tosaBuilder.getSplattedConst(1.0f, elementType, splatShape);
+    Value sqrt2m1 = tosaBuilder.getSplattedConst(
+        0.41421356237309515f, elementType, splatShape);
+    Value piOver2 = tosaBuilder.getSplattedConst(
+        1.5707963267948966f, elementType, splatShape);
+    Value piOver4 = tosaBuilder.getSplattedConst(
+        0.7853981633974483f, elementType, splatShape);
 
     // Taylor coefficients for the odd terms of atan(z).
-    Value c1 = tosaBuilder.getSplattedConst(1.0f, splatShape);
-    Value c3 = tosaBuilder.getSplattedConst(-1.0f / 3.0f, splatShape);
-    Value c5 = tosaBuilder.getSplattedConst(1.0f / 5.0f, splatShape);
-    Value c7 = tosaBuilder.getSplattedConst(-1.0f / 7.0f, splatShape);
-    Value c9 = tosaBuilder.getSplattedConst(1.0f / 9.0f, splatShape);
+    Value c1 = tosaBuilder.getSplattedConst(1.0f, elementType, splatShape);
+    Value c3 =
+        tosaBuilder.getSplattedConst(-1.0f / 3.0f, elementType, splatShape);
+    Value c5 =
+        tosaBuilder.getSplattedConst(1.0f / 5.0f, elementType, splatShape);
+    Value c7 =
+        tosaBuilder.getSplattedConst(-1.0f / 7.0f, elementType, splatShape);
+    Value c9 =
+        tosaBuilder.getSplattedConst(1.0f / 9.0f, elementType, splatShape);
 
     // Stage 1: take |x| and remember the sign predicate.
     Value absX =

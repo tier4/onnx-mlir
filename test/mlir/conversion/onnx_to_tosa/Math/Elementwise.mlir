@@ -428,3 +428,15 @@ func.func @test_atan_dynamic(%arg0: tensor<?x?xf32>) -> tensor<?x?xf32> {
 // CHECK:           return {{.*}} : tensor<?x?xf32>
 // CHECK-NOT:       onnx.Atan
 }
+
+// -----
+
+func.func @test_atan_f16(%arg0: tensor<8xf16>) -> tensor<8xf16> {
+  %0 = "onnx.Atan"(%arg0) : (tensor<8xf16>) -> tensor<8xf16>
+  "func.return"(%0) : (tensor<8xf16>) -> ()
+// CHECK-LABEL:  func @test_atan_f16
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<8xf16>) -> tensor<8xf16>
+// CHECK:           tosa.abs [[PARAM_0_]]
+// CHECK:           return {{.*}} : tensor<8xf16>
+// CHECK-NOT:       onnx.Atan
+}
