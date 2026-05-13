@@ -397,3 +397,34 @@ func.func @test_where_broadcast(%arg0: tensor<1xi1>, %arg1: tensor<13x21x1xf32>,
 // CHECK:           [[VAR_3_:%.+]] = tosa.select [[VAR_1_]], [[PARAM_1_]], [[VAR_2_]] : (tensor<1x1x1xi1>, tensor<13x21x1xf32>, tensor<1x1x1xf32>) -> tensor<13x21x1xf32>
 // CHECK:           return [[VAR_3_]] : tensor<13x21x1xf32>
 }
+
+// -----
+
+func.func @test_atan(%arg0: tensor<10x10xf32>) -> tensor<10x10xf32> {
+  %0 = "onnx.Atan"(%arg0) : (tensor<10x10xf32>) -> tensor<10x10xf32>
+  "func.return"(%0) : (tensor<10x10xf32>) -> ()
+// CHECK-LABEL:  func @test_atan
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<10x10xf32>) -> tensor<10x10xf32>
+// Polynomial-approximation lowering decomposes onnx.Atan into a mix of
+// elementwise TOSA ops; verify the structurally required ops are emitted and
+// the original onnx.Atan is removed.
+// CHECK-DAG:       tosa.abs [[PARAM_0_]]
+// CHECK-DAG:       tosa.greater
+// CHECK-DAG:       tosa.reciprocal
+// CHECK-DAG:       tosa.select
+// CHECK:           tosa.negate
+// CHECK:           return {{.*}} : tensor<10x10xf32>
+// CHECK-NOT:       onnx.Atan
+}
+
+// -----
+
+func.func @test_atan_dynamic(%arg0: tensor<?x?xf32>) -> tensor<?x?xf32> {
+  %0 = "onnx.Atan"(%arg0) : (tensor<?x?xf32>) -> tensor<?x?xf32>
+  "func.return"(%0) : (tensor<?x?xf32>) -> ()
+// CHECK-LABEL:  func @test_atan_dynamic
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<?x?xf32>) -> tensor<?x?xf32>
+// CHECK:           tosa.abs [[PARAM_0_]]
+// CHECK:           return {{.*}} : tensor<?x?xf32>
+// CHECK-NOT:       onnx.Atan
+}
