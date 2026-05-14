@@ -13,6 +13,7 @@ add_onnx_mlir_library(OMONNXToTOSA
   NN/MaxPoolSingleOut.cpp
   NN/AveragePool.cpp
   Tensor/Constant.cpp
+  Tensor/CumSum.cpp
   Tensor/Reshape.cpp
   Tensor/Resize.cpp
 
