@@ -13,6 +13,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "src/Conversion/ONNXToTOSA/ONNXToTOSACommon.hpp"
 
 using namespace mlir;
@@ -92,6 +93,7 @@ void FrontendToTosaLoweringPass::runOnOperation() {
   // Define legal dialects and operations
   target.addLegalDialect<mlir::tosa::TosaDialect, func::FuncDialect,
       mlir::arith::ArithDialect>();
+  target.addLegalOp<tensor::CastOp>();
 
   // Define patterns
   populateONNXToTOSAConversionPattern(target, patterns, typeConverter, context);
