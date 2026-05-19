@@ -43,6 +43,8 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
       target, patterns, typeConverter, ctx);
   populateLoweringONNXResizeOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
+  populateLoweringONNXCompressOpToTOSAPattern(
+      target, patterns, typeConverter, ctx);
   populateLoweringONNXCumSumOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
 }
