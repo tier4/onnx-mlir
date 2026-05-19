@@ -15,6 +15,7 @@ add_onnx_mlir_library(OMONNXToTOSA
   Tensor/Compress.cpp
   Tensor/Constant.cpp
   Tensor/CumSum.cpp
+  Tensor/NonZero.cpp
   Tensor/Reshape.cpp
   Tensor/Resize.cpp
 
