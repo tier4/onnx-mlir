@@ -90,29 +90,6 @@ mlir::Value buildOnnxToTosaPaddingConstOp(mlir::PatternRewriter &rewriter,
     const std::initializer_list<int64_t> &initialVals = {},
     const std::initializer_list<int64_t> &lastVals = {});
 
-/// Build a 1-D one-element splat constant of value 0 with element type
-/// `elementType`. Used as the pad_const for tosa.pad.
-mlir::Value buildZeroSplat(mlir::ConversionPatternRewriter &rewriter,
-    mlir::Location loc, TosaBuilder &tosaBuilder, mlir::Type elementType);
-
-/// Shift `v` along `axis` by `offset`, filling the vacated positions with
-/// zeros of `elementType`. `shiftRight = true` produces
-/// `out[..., i, ...] = v[..., i - offset, ...]` (with leading zeros);
-/// `shiftRight = false` produces `out[..., i, ...] = v[..., i + offset, ...]`
-/// (with trailing zeros).
-mlir::Value shiftAlongAxis(mlir::ConversionPatternRewriter &rewriter,
-    mlir::Location loc, TosaBuilder &tosaBuilder, mlir::Value v, int64_t offset,
-    int64_t axis, bool shiftRight, llvm::ArrayRef<int64_t> dataShape,
-    mlir::Type elementType);
-
-/// Inclusive Hillis-Steele prefix-sum scan of `input` along `axis`.
-/// `forward = true` for left-to-right scan, `forward = false` for reverse.
-/// Uses O(K) memory and log2(K) shift+add steps, where K = dataShape[axis].
-mlir::Value inclusiveScanAlongAxis(mlir::ConversionPatternRewriter &rewriter,
-    mlir::Location loc, TosaBuilder &tosaBuilder, mlir::Value input,
-    int64_t axis, bool forward, llvm::ArrayRef<int64_t> dataShape,
-    mlir::Type elementType);
-
 } // namespace tosa
 } // namespace onnx_mlir
 

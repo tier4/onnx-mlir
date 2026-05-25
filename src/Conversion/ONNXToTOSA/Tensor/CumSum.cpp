@@ -85,13 +85,13 @@ public:
     bool shiftRight = (reverse == 0);
 
     // Hillis-Steele inclusive scan: log2(K) steps of shift+add.
-    Value result = tosa::inclusiveScanAlongAxis(rewriter, loc, tosaBuilder,
+    Value result = tosaBuilder.inclusiveScanAlongAxis(
         input, axis, shiftRight, shape, elementType);
 
     // For exclusive mode, shift one more step in the same direction so each
     // position holds the sum that strictly precedes (or follows) it.
     if (exclusive != 0 && K > 0) {
-      result = tosa::shiftAlongAxis(rewriter, loc, tosaBuilder, result,
+      result = tosaBuilder.shiftAlongAxis(result,
           /*offset=*/1, axis, shiftRight, shape, elementType);
     }
 

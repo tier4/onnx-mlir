@@ -42,56 +42,6 @@ mlir::RankedTensorType reduceAxisToOne(
       llvm::SmallVector<int64_t, 4>(shape.size(), 1), elementType, encoding);
 }
 
-Value buildZeroSplat(ConversionPatternRewriter &rewriter, Location loc,
-    TosaBuilder &tosaBuilder, Type elementType) {
-  Value zeroF32 = tosaBuilder.getSplattedConst(0.0f, {1});
-  if (elementType.isF32())
-    return zeroF32;
-  return tosa::CreateOpAndInfer<mlir::tosa::CastOp>(
-      rewriter, loc, RankedTensorType::get({1}, elementType), zeroF32);
-}
-
-Value shiftAlongAxis(ConversionPatternRewriter &rewriter, Location loc,
-    TosaBuilder &tosaBuilder, Value v, int64_t offset, int64_t axis,
-    bool shiftRight, llvm::ArrayRef<int64_t> dataShape, Type elementType) {
-  int64_t rank = (int64_t)dataShape.size();
-  llvm::SmallVector<int64_t> sliceStart(rank, 0);
-  llvm::SmallVector<int64_t> sliceSize(dataShape.begin(), dataShape.end());
-  sliceSize[axis] -= offset;
-  if (!shiftRight)
-    sliceStart[axis] = offset;
-
-  Value sliced = tosaBuilder.slice(v, sliceSize, sliceStart);
-
-  // Pad shape format: flat [bef0, aft0, bef1, aft1, ...].
-  llvm::SmallVector<int64_t> padding(rank * 2, 0);
-  if (shiftRight)
-    padding[axis * 2] = offset;
-  else
-    padding[axis * 2 + 1] = offset;
-  Value padShape = mlir::tosa::getTosaConstShape(rewriter, loc, padding);
-
-  Value zero = buildZeroSplat(rewriter, loc, tosaBuilder, elementType);
-
-  Type padTy =
-      RankedTensorType::get(llvm::SmallVector<int64_t>(dataShape), elementType);
-  return tosa::CreateOpAndInfer<mlir::tosa::PadOp>(
-      rewriter, loc, padTy, sliced, padShape, zero);
-}
-
-Value inclusiveScanAlongAxis(ConversionPatternRewriter &rewriter, Location loc,
-    TosaBuilder &tosaBuilder, Value input, int64_t axis, bool forward,
-    llvm::ArrayRef<int64_t> dataShape, Type elementType) {
-  int64_t K = dataShape[axis];
-  Value result = input;
-  for (int64_t offset = 1; offset < K; offset *= 2) {
-    Value shifted = shiftAlongAxis(rewriter, loc, tosaBuilder, result, offset,
-        axis, forward, dataShape, elementType);
-    result = tosaBuilder.binaryOp<mlir::tosa::AddOp>(result, shifted);
-  }
-  return result;
-}
-
 Value buildOnnxToTosaPaddingConstOp(mlir::PatternRewriter &rewriter,
     llvm::ArrayRef<int64_t> onnxPads, Location loc,
     const std::initializer_list<int64_t> &initialVals,
