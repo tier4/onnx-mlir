@@ -278,6 +278,9 @@ Value TosaBuilder::binaryOp(Value &lhs, Value &rhs) {
 template Value TosaBuilder::binaryOp<mlir::tosa::AddOp>(Value &lhs, Value &rhs);
 
 template Value TosaBuilder::binaryOp<mlir::tosa::SubOp>(Value &lhs, Value &rhs);
+
+template Value TosaBuilder::binaryOp<mlir::tosa::GreaterOp>(
+    Value &lhs, Value &rhs);
 // =============================================================================
 // IndexExpr Builder for Lowering using Shape/TOSA Dialect.
 // =============================================================================

@@ -202,53 +202,46 @@ public:
           "types");
 
     Type outputType = op.getType();
-    auto i1ResultType =
-        RankedTensorType::get(llvm::SmallVector<int64_t, 4>(
-                                  inputType.getRank(), ShapedType::kDynamic),
-            rewriter.getI1Type());
     // Splat constants share the same rank as the input so that no rank
     // broadcast is needed for the elementwise TOSA ops below.
     llvm::SmallVector<int64_t, 4> splatShape(inputType.getRank(), 1);
 
     TosaBuilder tosaBuilder(rewriter, loc);
 
-    Value zero = tosaBuilder.getSplattedConst(0.0f, elementType, splatShape);
-    Value one = tosaBuilder.getSplattedConst(1.0f, elementType, splatShape);
+    Value zero = tosaBuilder.getSplattedConst(0.0f, splatShape, elementType);
+    Value one = tosaBuilder.getSplattedConst(1.0f, splatShape, elementType);
     Value sqrt2m1 = tosaBuilder.getSplattedConst(
-        0.41421356237309515f, elementType, splatShape);
+        0.41421356237309515f, splatShape, elementType);
     Value piOver2 = tosaBuilder.getSplattedConst(
-        1.5707963267948966f, elementType, splatShape);
+        1.5707963267948966f, splatShape, elementType);
     Value piOver4 = tosaBuilder.getSplattedConst(
-        0.7853981633974483f, elementType, splatShape);
+        0.7853981633974483f, splatShape, elementType);
 
     // Taylor coefficients for the odd terms of atan(z).
-    Value c1 = tosaBuilder.getSplattedConst(1.0f, elementType, splatShape);
+    Value c1 = tosaBuilder.getSplattedConst(1.0f, splatShape, elementType);
     Value c3 =
-        tosaBuilder.getSplattedConst(-1.0f / 3.0f, elementType, splatShape);
+        tosaBuilder.getSplattedConst(-1.0f / 3.0f, splatShape, elementType);
     Value c5 =
-        tosaBuilder.getSplattedConst(1.0f / 5.0f, elementType, splatShape);
+        tosaBuilder.getSplattedConst(1.0f / 5.0f, splatShape, elementType);
     Value c7 =
-        tosaBuilder.getSplattedConst(-1.0f / 7.0f, elementType, splatShape);
+        tosaBuilder.getSplattedConst(-1.0f / 7.0f, splatShape, elementType);
     Value c9 =
-        tosaBuilder.getSplattedConst(1.0f / 9.0f, elementType, splatShape);
+        tosaBuilder.getSplattedConst(1.0f / 9.0f, splatShape, elementType);
 
     // Stage 1: take |x| and remember the sign predicate.
     Value absX =
         tosa::CreateOpAndInfer<mlir::tosa::AbsOp>(rewriter, loc, outputType, x);
     // negPred : x < 0  (equivalently, 0 > x)
-    Value negPred = tosa::CreateOpAndInfer<mlir::tosa::GreaterOp>(
-        rewriter, loc, i1ResultType, zero, x);
+    Value negPred = tosaBuilder.binaryOp<mlir::tosa::GreaterOp>(zero, x);
 
     // Stage 2: if |x| > 1 use 1/|x|, so the working value y lies in [0, 1].
-    Value gt1 = tosa::CreateOpAndInfer<mlir::tosa::GreaterOp>(
-        rewriter, loc, i1ResultType, absX, one);
+    Value gt1 = tosaBuilder.binaryOp<mlir::tosa::GreaterOp>(absX, one);
     Value recAbs = tosaBuilder.reciprocal(absX);
     Value y = tosa::CreateOpAndInfer<mlir::tosa::SelectOp>(
         rewriter, loc, outputType, gt1, recAbs, absX);
 
     // Stage 3: if y > sqrt(2)-1 use (y-1)/(y+1) so |z| <= sqrt(2)-1.
-    Value gtC0 = tosa::CreateOpAndInfer<mlir::tosa::GreaterOp>(
-        rewriter, loc, i1ResultType, y, sqrt2m1);
+    Value gtC0 = tosaBuilder.binaryOp<mlir::tosa::GreaterOp>(y, sqrt2m1);
     Value yPlus1 = tosaBuilder.binaryOp<mlir::tosa::AddOp>(y, one);
     Value yMinus1 = tosaBuilder.binaryOp<mlir::tosa::SubOp>(y, one);
     Value invYPlus1 = tosaBuilder.reciprocal(yPlus1);
