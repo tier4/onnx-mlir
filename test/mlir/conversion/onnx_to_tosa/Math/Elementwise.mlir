@@ -275,3 +275,41 @@ func.func @test_clip_int(%arg0: tensor<10x10xi32>) -> tensor<10x10xi32> {
 // CHECK:           [[VAR_0_:%.+]] = tosa.clamp [[PARAM_0_]] {max_val = 5 : i32, min_val = -5 : i32} : (tensor<10x10xi32>) -> tensor<10x10xi32>
 // CHECK:           return [[VAR_0_]] : tensor<10x10xi32>
 }
+
+// -----
+
+func.func @test_mul(%arg0: tensor<13x21x1xf32>, %arg1: tensor<13x21x1xf32>) -> tensor<13x21x1xf32> {
+  %0 = "onnx.Mul"(%arg0, %arg1) : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xf32>
+  "func.return"(%0) : (tensor<13x21x1xf32>) -> ()
+// CHECK-LABEL:  func.func @test_mul
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xf32>, [[PARAM_1_:%.+]]: tensor<13x21x1xf32>) -> tensor<13x21x1xf32> {
+// CHECK-DAG:       [[VAR_0_:%.+]] = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+// CHECK:           [[VAR_1_:%.+]] = tosa.mul [[PARAM_0_]], [[PARAM_1_]], [[VAR_0_]] : (tensor<13x21x1xf32>, tensor<13x21x1xf32>, tensor<1xi8>) -> tensor<13x21x1xf32>
+// CHECK:           return [[VAR_1_]] : tensor<13x21x1xf32>
+}
+
+// -----
+
+func.func @test_mul_broadcast(%arg0: tensor<13x21x1xf32>, %arg1: tensor<1xf32>) -> tensor<13x21x1xf32> {
+  %0 = "onnx.Mul"(%arg0, %arg1) : (tensor<13x21x1xf32>, tensor<1xf32>) -> tensor<13x21x1xf32>
+  "func.return"(%0) : (tensor<13x21x1xf32>) -> ()
+// CHECK-LABEL:  func.func @test_mul_broadcast
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xf32>, [[PARAM_1_:%.+]]: tensor<1xf32>) -> tensor<13x21x1xf32> {
+// CHECK-DAG:       [[VAR_0_:%.+]] = tosa.const_shape  {values = dense<1> : tensor<3xindex>} : () -> !tosa.shape<3>
+// CHECK:           [[VAR_1_:%.+]] = tosa.reshape [[PARAM_1_]], [[VAR_0_]] : (tensor<1xf32>, !tosa.shape<3>) -> tensor<1x1x1xf32>
+// CHECK-DAG:       [[VAR_2_:%.+]] = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+// CHECK:           [[VAR_3_:%.+]] = tosa.mul [[PARAM_0_]], [[VAR_1_]], [[VAR_2_]] : (tensor<13x21x1xf32>, tensor<1x1x1xf32>, tensor<1xi8>) -> tensor<13x21x1xf32>
+// CHECK:           return [[VAR_3_]] : tensor<13x21x1xf32>
+}
+
+// -----
+
+func.func @test_mul_int(%arg0: tensor<13x21x1xi32>, %arg1: tensor<13x21x1xi32>) -> tensor<13x21x1xi32> {
+  %0 = "onnx.Mul"(%arg0, %arg1) : (tensor<13x21x1xi32>, tensor<13x21x1xi32>) -> tensor<13x21x1xi32>
+  "func.return"(%0) : (tensor<13x21x1xi32>) -> ()
+// CHECK-LABEL:  func.func @test_mul_int
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xi32>, [[PARAM_1_:%.+]]: tensor<13x21x1xi32>) -> tensor<13x21x1xi32> {
+// CHECK-DAG:       [[VAR_0_:%.+]] = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+// CHECK:           [[VAR_1_:%.+]] = tosa.mul [[PARAM_0_]], [[PARAM_1_]], [[VAR_0_]] : (tensor<13x21x1xi32>, tensor<13x21x1xi32>, tensor<1xi8>) -> tensor<13x21x1xi32>
+// CHECK:           return [[VAR_1_]] : tensor<13x21x1xi32>
+}

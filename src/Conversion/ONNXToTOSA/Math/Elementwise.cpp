@@ -329,6 +329,30 @@ public:
   }
 };
 
+class ONNXMulOpLoweringToTOSA : public OpConversionPattern<ONNXMulOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult matchAndRewrite(ONNXMulOp op, OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    Value lhs = adaptor.getA();
+    Value rhs = adaptor.getB();
+
+    auto resultType = mlir::dyn_cast<TensorType>(op.getResult().getType());
+    if (!resultType)
+      return rewriter.notifyMatchFailure(op, "Tosa only supports TensorTypes");
+
+    Type resultElementType = resultType.getElementType();
+    if (!resultElementType.isIntOrFloat())
+      return rewriter.notifyMatchFailure(
+          op, "only int and float are supported");
+
+    TosaBuilder tosaBuilder(rewriter, op->getLoc());
+    Value mulOp = tosaBuilder.mul(lhs, rhs);
+    rewriter.replaceOp(op, {mulOp});
+    return success();
+  }
+};
+
 class ONNXDivOpLoweringToTOSA : public OpConversionPattern<ONNXDivOp> {
 public:
   using OpConversionPattern::OpConversionPattern;
@@ -367,7 +391,8 @@ void populateLoweringONNXElementwiseOpToTOSAPattern(ConversionTarget &target,
       ONNXSinOpLoweringToTOSA, ONNXCosOpLoweringToTOSA, ONNXErfOpLoweringToTOSA,
       ONNXTanhOpLoweringToTOSA, ONNXGeluOpLoweringToTOSA,
       ONNXFloorOpLoweringToTOSA, ONNXReluOpLoweringToTOSA,
-      ONNXClipOpLoweringToTOSA, ONNXDivOpLoweringToTOSA>(typeConverter, ctx);
+      ONNXClipOpLoweringToTOSA, ONNXMulOpLoweringToTOSA,
+      ONNXDivOpLoweringToTOSA>(typeConverter, ctx);
 }
 
 } // namespace onnx_mlir
