@@ -45,6 +45,8 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
       target, patterns, typeConverter, ctx);
   populateLoweringONNXTransposeOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
+  populateLoweringONNXSliceOpToTOSAPattern(
+      target, patterns, typeConverter, ctx);
 }
 
 // Performs lowering to TOSA dialect
