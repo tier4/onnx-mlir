@@ -16,6 +16,8 @@ add_onnx_mlir_library(OMONNXToTOSA
   NN/AveragePool.cpp
   NN/Normalization.cpp
   Tensor/Constant.cpp
+  Tensor/Gather.cpp
+  Tensor/Scatter.cpp
   Tensor/Reshape.cpp
   Tensor/Resize.cpp
   Tensor/Slice.cpp
