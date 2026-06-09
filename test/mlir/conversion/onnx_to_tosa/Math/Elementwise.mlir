@@ -35,6 +35,16 @@ func.func @test_neg(%arg0: tensor<10x10xf32>) -> tensor<10x10xf32> {
 
 // -----
 
+func.func @test_not(%arg0: tensor<10x10xi1>) -> tensor<10x10xi1> {
+  %0 = "onnx.Not"(%arg0) : (tensor<10x10xi1>) -> tensor<10x10xi1>
+  "func.return"(%0) : (tensor<10x10xi1>) -> ()
+// CHECK-LABEL:  func @test_not
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<10x10xi1>) -> tensor<10x10xi1> {
+// CHECK: [[VAR_0_:%.+]] = tosa.logical_not [[PARAM_0_]] : (tensor<10x10xi1>) -> tensor<10x10xi1>
+}
+
+// -----
+
 func.func @test_floor(%arg0: tensor<10x10xf32>) -> tensor<10x10xf32> {
   %0 = "onnx.Floor"(%arg0) : (tensor<10x10xf32>) -> tensor<10x10xf32>
   "func.return"(%0) : (tensor<10x10xf32>) -> ()
