@@ -24,6 +24,11 @@ struct TOSADialectOp<ONNXNegOp> {
   using Op = mlir::tosa::NegateOp;
 };
 
+template <>
+struct TOSADialectOp<ONNXNotOp> {
+  using Op = mlir::tosa::LogicalNotOp;
+};
+
 namespace {
 
 // Element-wise unary ops lowering to TOSA dialect.
@@ -590,6 +595,7 @@ void populateLoweringONNXElementwiseOpToTOSAPattern(ConversionTarget &target,
     RewritePatternSet &patterns, TypeConverter &typeConverter,
     MLIRContext *ctx) {
   patterns.insert<ONNXElementwiseUnaryOpLoweringToTOSA<ONNXNegOp>,
+      ONNXElementwiseUnaryOpLoweringToTOSA<ONNXNotOp>,
       ONNXBinaryElementwiseOpLoweringToTOSA<ONNXAddOp, mlir::tosa::AddOp>,
       ONNXBinaryElementwiseOpLoweringToTOSA<ONNXSubOp, mlir::tosa::SubOp>,
       ONNXBinaryElementwiseOpLoweringToTOSA<ONNXEqualOp, mlir::tosa::EqualOp>,
@@ -602,6 +608,7 @@ void populateLoweringONNXElementwiseOpToTOSAPattern(ConversionTarget &target,
       ONNXBinaryElementwiseOpLoweringToTOSA<ONNXLessOrEqualOp,
           mlir::tosa::GreaterEqualOp, /*SwapOperands=*/true>,
       ONNXSinOpLoweringToTOSA, ONNXCosOpLoweringToTOSA, ONNXExpOpLoweringToTOSA,
+      ONNXErfOpLoweringToTOSA, ONNXTanhOpLoweringToTOSA,
       ONNXGeluOpLoweringToTOSA, ONNXAtanOpLoweringToTOSA,
       ONNXFloorOpLoweringToTOSA, ONNXReluOpLoweringToTOSA,
       ONNXSigmoidOpLoweringToTOSA, ONNXSqrtOpLoweringToTOSA,
