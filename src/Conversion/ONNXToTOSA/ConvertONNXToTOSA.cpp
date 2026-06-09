@@ -38,6 +38,8 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
       target, patterns, typeConverter, ctx);
   populateLoweringONNXAveragePoolOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
+  populateLoweringONNXLayerNormalizationOpToTOSAPattern(
+      target, patterns, typeConverter, ctx);
   // Tensor
   populateLoweringONNXConstOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
