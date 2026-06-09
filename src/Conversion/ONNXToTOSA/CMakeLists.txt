@@ -17,7 +17,10 @@ add_onnx_mlir_library(OMONNXToTOSA
   Tensor/Constant.cpp
   Tensor/Reshape.cpp
   Tensor/Resize.cpp
+  Tensor/Slice.cpp
+  Tensor/Split.cpp
   Tensor/SqueezeUnsqueeze.cpp
+  Tensor/Transpose.cpp
 
   LINK_LIBS PUBLIC
   OMONNXOps

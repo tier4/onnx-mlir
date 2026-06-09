@@ -47,7 +47,13 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
       target, patterns, typeConverter, ctx);
   populateLoweringONNXResizeOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
+  populateLoweringONNXSliceOpToTOSAPattern(
+      target, patterns, typeConverter, ctx);
+  populateLoweringONNXSplitOpToTOSAPattern(
+      target, patterns, typeConverter, ctx);
   populateLoweringONNXSqueezeOpToTOSAPattern(
+      target, patterns, typeConverter, ctx);
+  populateLoweringONNXTransposeOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
   populateLoweringONNXUnsqueezeOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
