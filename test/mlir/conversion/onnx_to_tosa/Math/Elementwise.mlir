@@ -164,6 +164,92 @@ func.func @test_cos(%arg0: tensor<10x10xf32>) -> tensor<10x10xf32> {
 
 // -----
 
+func.func @test_equal(%arg0: tensor<13x21x1xf32>, %arg1: tensor<13x21x1xf32>) -> tensor<13x21x1xi1> {
+  %0 = "onnx.Equal"(%arg0, %arg1) : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+  "func.return"(%0) : (tensor<13x21x1xi1>) -> ()
+// CHECK-LABEL:  func @test_equal
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xf32>, [[PARAM_1_:%.+]]: tensor<13x21x1xf32>) -> tensor<13x21x1xi1> {
+// CHECK-NEXT:      [[VAR_0_:%.+]] = tosa.equal [[PARAM_0_]], [[PARAM_1_]] : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+}
+
+// -----
+
+func.func @test_equal_int(%arg0: tensor<13x21x1xi32>, %arg1: tensor<13x21x1xi32>) -> tensor<13x21x1xi1> {
+  %0 = "onnx.Equal"(%arg0, %arg1) : (tensor<13x21x1xi32>, tensor<13x21x1xi32>) -> tensor<13x21x1xi1>
+  "func.return"(%0) : (tensor<13x21x1xi1>) -> ()
+// CHECK-LABEL:  func @test_equal_int
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xi32>, [[PARAM_1_:%.+]]: tensor<13x21x1xi32>) -> tensor<13x21x1xi1> {
+// CHECK-NEXT:      [[VAR_0_:%.+]] = tosa.equal [[PARAM_0_]], [[PARAM_1_]] : (tensor<13x21x1xi32>, tensor<13x21x1xi32>) -> tensor<13x21x1xi1>
+}
+
+// -----
+
+func.func @test_greater(%arg0: tensor<13x21x1xf32>, %arg1: tensor<13x21x1xf32>) -> tensor<13x21x1xi1> {
+  %0 = "onnx.Greater"(%arg0, %arg1) : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+  "func.return"(%0) : (tensor<13x21x1xi1>) -> ()
+// CHECK-LABEL:  func @test_greater
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xf32>, [[PARAM_1_:%.+]]: tensor<13x21x1xf32>) -> tensor<13x21x1xi1> {
+// CHECK-NEXT:      [[VAR_0_:%.+]] = tosa.greater [[PARAM_0_]], [[PARAM_1_]] : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+}
+
+// -----
+
+func.func @test_greater_broadcast(%arg0: tensor<13x21x1xf32>, %arg1: tensor<1xf32>) -> tensor<13x21x1xi1> {
+  %0 = "onnx.Greater"(%arg0, %arg1) : (tensor<13x21x1xf32>, tensor<1xf32>) -> tensor<13x21x1xi1>
+  "func.return"(%0) : (tensor<13x21x1xi1>) -> ()
+// CHECK-LABEL:  func.func @test_greater_broadcast
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xf32>, [[PARAM_1_:%.+]]: tensor<1xf32>) -> tensor<13x21x1xi1> {
+// CHECK:           [[VAR_0_:%.+]] = tosa.const_shape  {values = dense<1> : tensor<3xindex>} : () -> !tosa.shape<3>
+// CHECK:           [[VAR_1_:%.+]] = tosa.reshape [[PARAM_1_]], [[VAR_0_]] : (tensor<1xf32>, !tosa.shape<3>) -> tensor<1x1x1xf32>
+// CHECK:           [[VAR_2_:%.+]] = tosa.greater [[PARAM_0_]], [[VAR_1_]] : (tensor<13x21x1xf32>, tensor<1x1x1xf32>) -> tensor<13x21x1xi1>
+// CHECK:           return [[VAR_2_]] : tensor<13x21x1xi1>
+}
+
+// -----
+
+func.func @test_greater_or_equal(%arg0: tensor<13x21x1xf32>, %arg1: tensor<13x21x1xf32>) -> tensor<13x21x1xi1> {
+  %0 = "onnx.GreaterOrEqual"(%arg0, %arg1) : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+  "func.return"(%0) : (tensor<13x21x1xi1>) -> ()
+// CHECK-LABEL:  func @test_greater_or_equal
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xf32>, [[PARAM_1_:%.+]]: tensor<13x21x1xf32>) -> tensor<13x21x1xi1> {
+// CHECK-NEXT:      [[VAR_0_:%.+]] = tosa.greater_equal [[PARAM_0_]], [[PARAM_1_]] : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+}
+
+// -----
+
+func.func @test_less(%arg0: tensor<13x21x1xf32>, %arg1: tensor<13x21x1xf32>) -> tensor<13x21x1xi1> {
+  %0 = "onnx.Less"(%arg0, %arg1) : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+  "func.return"(%0) : (tensor<13x21x1xi1>) -> ()
+// CHECK-LABEL:  func @test_less
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xf32>, [[PARAM_1_:%.+]]: tensor<13x21x1xf32>) -> tensor<13x21x1xi1> {
+// CHECK-NEXT:      [[VAR_0_:%.+]] = tosa.greater [[PARAM_1_]], [[PARAM_0_]] : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+}
+
+// -----
+
+func.func @test_less_broadcast(%arg0: tensor<13x21x1xf32>, %arg1: tensor<1xf32>) -> tensor<13x21x1xi1> {
+  %0 = "onnx.Less"(%arg0, %arg1) : (tensor<13x21x1xf32>, tensor<1xf32>) -> tensor<13x21x1xi1>
+  "func.return"(%0) : (tensor<13x21x1xi1>) -> ()
+// CHECK-LABEL:  func.func @test_less_broadcast
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xf32>, [[PARAM_1_:%.+]]: tensor<1xf32>) -> tensor<13x21x1xi1> {
+// CHECK:           [[VAR_0_:%.+]] = tosa.const_shape  {values = dense<1> : tensor<3xindex>} : () -> !tosa.shape<3>
+// CHECK:           [[VAR_1_:%.+]] = tosa.reshape [[PARAM_1_]], [[VAR_0_]] : (tensor<1xf32>, !tosa.shape<3>) -> tensor<1x1x1xf32>
+// CHECK:           [[VAR_2_:%.+]] = tosa.greater [[VAR_1_]], [[PARAM_0_]] : (tensor<1x1x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+// CHECK:           return [[VAR_2_]] : tensor<13x21x1xi1>
+}
+
+// -----
+
+func.func @test_less_or_equal(%arg0: tensor<13x21x1xf32>, %arg1: tensor<13x21x1xf32>) -> tensor<13x21x1xi1> {
+  %0 = "onnx.LessOrEqual"(%arg0, %arg1) : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+  "func.return"(%0) : (tensor<13x21x1xi1>) -> ()
+// CHECK-LABEL:  func @test_less_or_equal
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xf32>, [[PARAM_1_:%.+]]: tensor<13x21x1xf32>) -> tensor<13x21x1xi1> {
+// CHECK-NEXT:      [[VAR_0_:%.+]] = tosa.greater_equal [[PARAM_1_]], [[PARAM_0_]] : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+}
+
+// -----
+
 func.func @test_erf(%arg0: tensor<10x10xf32>) -> tensor<10x10xf32> {
   %0 = "onnx.Erf"(%arg0) : (tensor<10x10xf32>) -> tensor<10x10xf32>
   "func.return"(%0) : (tensor<10x10xf32>) -> ()
@@ -274,4 +360,83 @@ func.func @test_clip_int(%arg0: tensor<10x10xi32>) -> tensor<10x10xi32> {
 // CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<10x10xi32>) -> tensor<10x10xi32> {
 // CHECK:           [[VAR_0_:%.+]] = tosa.clamp [[PARAM_0_]] {max_val = 5 : i32, min_val = -5 : i32} : (tensor<10x10xi32>) -> tensor<10x10xi32>
 // CHECK:           return [[VAR_0_]] : tensor<10x10xi32>
+}
+
+// -----
+
+func.func @test_where(%arg0: tensor<13x21x1xi1>, %arg1: tensor<13x21x1xf32>, %arg2: tensor<13x21x1xf32>) -> tensor<13x21x1xf32> {
+  %0 = "onnx.Where"(%arg0, %arg1, %arg2) : (tensor<13x21x1xi1>, tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xf32>
+  "func.return"(%0) : (tensor<13x21x1xf32>) -> ()
+// CHECK-LABEL:  func @test_where
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xi1>, [[PARAM_1_:%.+]]: tensor<13x21x1xf32>, [[PARAM_2_:%.+]]: tensor<13x21x1xf32>) -> tensor<13x21x1xf32> {
+// CHECK:           [[VAR_0_:%.+]] = tosa.select [[PARAM_0_]], [[PARAM_1_]], [[PARAM_2_]] : (tensor<13x21x1xi1>, tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xf32>
+// CHECK:           return [[VAR_0_]] : tensor<13x21x1xf32>
+}
+
+// -----
+
+func.func @test_where_int(%arg0: tensor<13x21x1xi1>, %arg1: tensor<13x21x1xi32>, %arg2: tensor<13x21x1xi32>) -> tensor<13x21x1xi32> {
+  %0 = "onnx.Where"(%arg0, %arg1, %arg2) : (tensor<13x21x1xi1>, tensor<13x21x1xi32>, tensor<13x21x1xi32>) -> tensor<13x21x1xi32>
+  "func.return"(%0) : (tensor<13x21x1xi32>) -> ()
+// CHECK-LABEL:  func @test_where_int
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xi1>, [[PARAM_1_:%.+]]: tensor<13x21x1xi32>, [[PARAM_2_:%.+]]: tensor<13x21x1xi32>) -> tensor<13x21x1xi32> {
+// CHECK:           [[VAR_0_:%.+]] = tosa.select [[PARAM_0_]], [[PARAM_1_]], [[PARAM_2_]] : (tensor<13x21x1xi1>, tensor<13x21x1xi32>, tensor<13x21x1xi32>) -> tensor<13x21x1xi32>
+// CHECK:           return [[VAR_0_]] : tensor<13x21x1xi32>
+}
+
+// -----
+
+func.func @test_where_broadcast(%arg0: tensor<1xi1>, %arg1: tensor<13x21x1xf32>, %arg2: tensor<1xf32>) -> tensor<13x21x1xf32> {
+  %0 = "onnx.Where"(%arg0, %arg1, %arg2) : (tensor<1xi1>, tensor<13x21x1xf32>, tensor<1xf32>) -> tensor<13x21x1xf32>
+  "func.return"(%0) : (tensor<13x21x1xf32>) -> ()
+// CHECK-LABEL:  func.func @test_where_broadcast
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<1xi1>, [[PARAM_1_:%.+]]: tensor<13x21x1xf32>, [[PARAM_2_:%.+]]: tensor<1xf32>) -> tensor<13x21x1xf32> {
+// CHECK:           [[VAR_0_:%.+]] = tosa.const_shape  {values = dense<1> : tensor<3xindex>} : () -> !tosa.shape<3>
+// CHECK:           [[VAR_1_:%.+]] = tosa.reshape [[PARAM_0_]], [[VAR_0_]] : (tensor<1xi1>, !tosa.shape<3>) -> tensor<1x1x1xi1>
+// CHECK:           [[VAR_2_:%.+]] = tosa.reshape [[PARAM_2_]], [[VAR_0_]] : (tensor<1xf32>, !tosa.shape<3>) -> tensor<1x1x1xf32>
+// CHECK:           [[VAR_3_:%.+]] = tosa.select [[VAR_1_]], [[PARAM_1_]], [[VAR_2_]] : (tensor<1x1x1xi1>, tensor<13x21x1xf32>, tensor<1x1x1xf32>) -> tensor<13x21x1xf32>
+// CHECK:           return [[VAR_3_]] : tensor<13x21x1xf32>
+}
+
+// -----
+
+func.func @test_atan(%arg0: tensor<10x10xf32>) -> tensor<10x10xf32> {
+  %0 = "onnx.Atan"(%arg0) : (tensor<10x10xf32>) -> tensor<10x10xf32>
+  "func.return"(%0) : (tensor<10x10xf32>) -> ()
+// CHECK-LABEL:  func @test_atan
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<10x10xf32>) -> tensor<10x10xf32>
+// Polynomial-approximation lowering decomposes onnx.Atan into a mix of
+// elementwise TOSA ops; verify the structurally required ops are emitted and
+// the original onnx.Atan is removed.
+// CHECK-DAG:       tosa.abs [[PARAM_0_]]
+// CHECK-DAG:       tosa.greater
+// CHECK-DAG:       tosa.reciprocal
+// CHECK-DAG:       tosa.select
+// CHECK:           tosa.negate
+// CHECK:           return {{.*}} : tensor<10x10xf32>
+// CHECK-NOT:       onnx.Atan
+}
+
+// -----
+
+func.func @test_atan_dynamic(%arg0: tensor<?x?xf32>) -> tensor<?x?xf32> {
+  %0 = "onnx.Atan"(%arg0) : (tensor<?x?xf32>) -> tensor<?x?xf32>
+  "func.return"(%0) : (tensor<?x?xf32>) -> ()
+// CHECK-LABEL:  func @test_atan_dynamic
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<?x?xf32>) -> tensor<?x?xf32>
+// CHECK:           tosa.abs [[PARAM_0_]]
+// CHECK:           return {{.*}} : tensor<?x?xf32>
+// CHECK-NOT:       onnx.Atan
+}
+
+// -----
+
+func.func @test_atan_f16(%arg0: tensor<8xf16>) -> tensor<8xf16> {
+  %0 = "onnx.Atan"(%arg0) : (tensor<8xf16>) -> tensor<8xf16>
+  "func.return"(%0) : (tensor<8xf16>) -> ()
+// CHECK-LABEL:  func @test_atan_f16
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<8xf16>) -> tensor<8xf16>
+// CHECK:           tosa.abs [[PARAM_0_]]
+// CHECK:           return {{.*}} : tensor<8xf16>
+// CHECK-NOT:       onnx.Atan
 }
