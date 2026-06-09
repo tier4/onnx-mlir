@@ -262,25 +262,27 @@ Value TosaBuilder::tanh(Value &input) {
 }
 
 template <typename T>
-Value TosaBuilder::binaryOp(Value &lhs, Value &rhs) {
+Value TosaBuilder::binaryOp(Value &lhs, Value &rhs, mlir::Type elementType) {
+  auto lhsType = mlir::cast<ShapedType>(lhs.getType());
+  if (!elementType)
+    elementType = lhsType.getElementType();
   if (needsRankBroadcast({lhs, rhs})) {
     llvm::SmallVector<Value, 4> valueVec = equalizeRanks({lhs, rhs});
     lhs = valueVec[0];
     rhs = valueVec[1];
   }
-  auto lhsType = mlir::cast<ShapedType>(lhs.getType());
   Type newValueType = RankedTensorType::get(
       llvm::SmallVector<int64_t, 4>(lhsType.getRank(), ShapedType::kDynamic),
-      lhsType.getElementType());
+      elementType);
   return tosa::CreateOpAndInfer<T>(rewriter(), loc(), newValueType, lhs, rhs);
 }
 
-template Value TosaBuilder::binaryOp<mlir::tosa::AddOp>(Value &lhs, Value &rhs);
+template Value TosaBuilder::binaryOp<mlir::tosa::AddOp>(Value &lhs, Value &rhs, mlir::Type);
 
-template Value TosaBuilder::binaryOp<mlir::tosa::SubOp>(Value &lhs, Value &rhs);
+template Value TosaBuilder::binaryOp<mlir::tosa::SubOp>(Value &lhs, Value &rhs, mlir::Type);
 
 template Value TosaBuilder::binaryOp<mlir::tosa::GreaterOp>(
-    Value &lhs, Value &rhs);
+    Value &lhs, Value &rhs, mlir::Type);
 // =============================================================================
 // IndexExpr Builder for Lowering using Shape/TOSA Dialect.
 // =============================================================================

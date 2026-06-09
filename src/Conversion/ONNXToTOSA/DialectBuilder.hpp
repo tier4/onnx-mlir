@@ -39,7 +39,7 @@ struct TosaBuilder : DialectBuilder {
   virtual ~TosaBuilder() {}
 
   template <typename T>
-  mlir::Value binaryOp(mlir::Value &lhs, mlir::Value &rhs);
+  mlir::Value binaryOp(mlir::Value &lhs, mlir::Value &rhs, mlir::Type elementType = nullptr);
   mlir::Value mul(mlir::Value &lhs, mlir::Value &rhs, int8_t shift = 0);
   mlir::Value intdiv(mlir::Value &lhs, mlir::Value &rhs);
   mlir::Value select(mlir::Value &cond, mlir::Value &lhs, mlir::Value &rhs);
