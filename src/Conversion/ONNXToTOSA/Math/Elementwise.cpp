@@ -202,6 +202,7 @@ public:
           "types");
 
     Type outputType = op.getType();
+    Type predType = rewriter.getI1Type();
     // Splat constants share the same rank as the input so that no rank
     // broadcast is needed for the elementwise TOSA ops below.
     llvm::SmallVector<int64_t, 4> splatShape(inputType.getRank(), 1);
@@ -232,22 +233,20 @@ public:
     Value absX =
         tosa::CreateOpAndInfer<mlir::tosa::AbsOp>(rewriter, loc, outputType, x);
     // negPred : x < 0  (equivalently, 0 > x)
-    Value negPred = tosaBuilder.binaryOp<mlir::tosa::GreaterOp>(zero, x);
+    Value negPred = tosaBuilder.binaryOp<mlir::tosa::GreaterOp>(zero, x, predType);
 
     // Stage 2: if |x| > 1 use 1/|x|, so the working value y lies in [0, 1].
-    Value gt1 = tosaBuilder.binaryOp<mlir::tosa::GreaterOp>(absX, one);
+    Value gt1 = tosaBuilder.binaryOp<mlir::tosa::GreaterOp>(absX, one, predType);
     Value recAbs = tosaBuilder.reciprocal(absX);
-    Value y = tosa::CreateOpAndInfer<mlir::tosa::SelectOp>(
-        rewriter, loc, outputType, gt1, recAbs, absX);
+    Value y = tosaBuilder.select(gt1, recAbs, absX);
 
     // Stage 3: if y > sqrt(2)-1 use (y-1)/(y+1) so |z| <= sqrt(2)-1.
-    Value gtC0 = tosaBuilder.binaryOp<mlir::tosa::GreaterOp>(y, sqrt2m1);
+    Value gtC0 = tosaBuilder.binaryOp<mlir::tosa::GreaterOp>(y, sqrt2m1, predType);
     Value yPlus1 = tosaBuilder.binaryOp<mlir::tosa::AddOp>(y, one);
     Value yMinus1 = tosaBuilder.binaryOp<mlir::tosa::SubOp>(y, one);
     Value invYPlus1 = tosaBuilder.reciprocal(yPlus1);
     Value frac = tosaBuilder.mul(yMinus1, invYPlus1);
-    Value z = tosa::CreateOpAndInfer<mlir::tosa::SelectOp>(
-        rewriter, loc, outputType, gtC0, frac, y);
+    Value z = tosaBuilder.select(gtC0, frac, y);
 
     // Horner evaluation of p(z) = z * (c1 + z^2*(c3 + z^2*(c5 + z^2*(c7 +
     // z^2*c9)))).
@@ -265,21 +264,18 @@ public:
     // Stage 3 restore: atan(u) = pi/4 + atan(z) when the reduction was taken.
     Value atanZPlusPi4 =
         tosaBuilder.binaryOp<mlir::tosa::AddOp>(atanZ, piOver4);
-    Value atanU = tosa::CreateOpAndInfer<mlir::tosa::SelectOp>(
-        rewriter, loc, outputType, gtC0, atanZPlusPi4, atanZ);
+    Value atanU = tosaBuilder.select(gtC0, atanZPlusPi4, atanZ);
 
     // Stage 2 restore: atan(|x|) = pi/2 - atan(u) when the reduction was
     // taken.
     Value pi2MinusAtanU =
         tosaBuilder.binaryOp<mlir::tosa::SubOp>(piOver2, atanU);
-    Value atanAbsX = tosa::CreateOpAndInfer<mlir::tosa::SelectOp>(
-        rewriter, loc, outputType, gt1, pi2MinusAtanU, atanU);
+    Value atanAbsX = tosaBuilder.select(gt1, pi2MinusAtanU, atanU);
 
     // Stage 1 restore: atan(x) = -atan(|x|) for x < 0.
     Value negAtanAbsX = tosa::CreateOpAndInfer<mlir::tosa::NegateOp>(
         rewriter, loc, outputType, atanAbsX);
-    Value result = tosa::CreateOpAndInfer<mlir::tosa::SelectOp>(
-        rewriter, loc, outputType, negPred, negAtanAbsX, atanAbsX);
+    Value result = tosaBuilder.select(negPred, negAtanAbsX, atanAbsX);
 
     rewriter.replaceOp(op, result);
     return success();
