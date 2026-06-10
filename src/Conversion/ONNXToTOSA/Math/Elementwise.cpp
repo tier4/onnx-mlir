@@ -78,11 +78,7 @@ public:
     if (TosaOpT::template hasTrait<
             mlir::OpTrait::ResultsBroadcastableShape>()) {
 
-      IndexExprBuilderForTosa createTosaIE(rewriter, op->getLoc());
-      ONNXBroadcastOpShapeHelper shapeHelper(op, {}, &createTosaIE);
-      shapeHelper.computeShapeAndAssertOnFailure();
-
-      if (shapeHelper.hasRankBroadcast()) {
+      if (lhsType.getRank() != rhsType.getRank()) {
         TosaBuilder tosaBuilder(rewriter, loc);
         llvm::SmallVector<Value, 4> newValues =
             tosaBuilder.equalizeRanks({lhs, rhs});
