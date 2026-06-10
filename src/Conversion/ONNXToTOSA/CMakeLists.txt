@@ -18,9 +18,11 @@ add_onnx_mlir_library(OMONNXToTOSA
   NN/Normalization.cpp
   Tensor/Concat.cpp
   Tensor/Constant.cpp
+  Tensor/CumSum.cpp
   Tensor/Dim.cpp
   Tensor/Expand.cpp
   Tensor/Gather.cpp
+  Tensor/NonZero.cpp
   Tensor/Scatter.cpp
   Tensor/Reshape.cpp
   Tensor/Resize.cpp
@@ -31,6 +33,7 @@ add_onnx_mlir_library(OMONNXToTOSA
 
   LINK_LIBS PUBLIC
   OMONNXOps
+  OMShapeInference
   MLIRTosaDialect
   MLIRTransforms
   )

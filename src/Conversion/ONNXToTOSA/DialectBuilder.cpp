@@ -261,6 +261,53 @@ Value TosaBuilder::tanh(Value &input) {
       rewriter(), loc(), newValueType, input);
 }
 
+Value TosaBuilder::buildZeroSplat(Type elementType) {
+  Value zeroF32 = this->getSplattedConst(0.0f, {1});
+  if (elementType.isF32())
+    return zeroF32;
+  return tosa::CreateOpAndInfer<mlir::tosa::CastOp>(
+      rewriter(), loc(), RankedTensorType::get({1}, elementType), zeroF32);
+}
+
+Value TosaBuilder::shiftAlongAxis(Value v, int64_t offset, int64_t axis,
+    bool shiftRight, llvm::ArrayRef<int64_t> dataShape, Type elementType) {
+  int64_t rank = (int64_t)dataShape.size();
+  llvm::SmallVector<int64_t> sliceStart(rank, 0);
+  llvm::SmallVector<int64_t> sliceSize(dataShape.begin(), dataShape.end());
+  sliceSize[axis] -= offset;
+  if (!shiftRight)
+    sliceStart[axis] = offset;
+
+  Value sliced = this->slice(v, sliceSize, sliceStart);
+
+  // Pad shape format: flat [bef0, aft0, bef1, aft1, ...].
+  llvm::SmallVector<int64_t> padding(rank * 2, 0);
+  if (shiftRight)
+    padding[axis * 2] = offset;
+  else
+    padding[axis * 2 + 1] = offset;
+  Value padShape = mlir::tosa::getTosaConstShape(rewriter(), loc(), padding);
+
+  Value zero = this->buildZeroSplat(elementType);
+
+  Type padTy =
+      RankedTensorType::get(llvm::SmallVector<int64_t>(dataShape), elementType);
+  return tosa::CreateOpAndInfer<mlir::tosa::PadOp>(
+      rewriter(), loc(), padTy, sliced, padShape, zero);
+}
+
+Value TosaBuilder::inclusiveScanAlongAxis(Value input, int64_t axis,
+    bool forward, llvm::ArrayRef<int64_t> dataShape, Type elementType) {
+  int64_t K = dataShape[axis];
+  Value result = input;
+  for (int64_t offset = 1; offset < K; offset *= 2) {
+    Value shifted = this->shiftAlongAxis(
+        result, offset, axis, forward, dataShape, elementType);
+    result = this->binaryOp<mlir::tosa::AddOp>(result, shifted);
+  }
+  return result;
+}
+
 template <typename T>
 Value TosaBuilder::binaryOp(Value &lhs, Value &rhs, mlir::Type elementType) {
   auto lhsType = mlir::cast<ShapedType>(lhs.getType());

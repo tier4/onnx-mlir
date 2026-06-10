@@ -110,6 +110,19 @@ func.func @test_add_broadcast(%arg0: tensor<13x21x1xf32>, %arg1: tensor<1xf32>) 
 
 // -----
 
+func.func @test_add_broadcast_dynamic(%arg0: tensor<?x21x128xf32>, %arg1: tensor<128xf32>) -> tensor<?x21x128xf32> {
+  %0 = "onnx.Add"(%arg0, %arg1) : (tensor<?x21x128xf32>, tensor<128xf32>) -> tensor<?x21x128xf32>
+  "func.return"(%0) : (tensor<?x21x128xf32>) -> ()
+// CHECK-LABEL:  func.func @test_add_broadcast_dynamic
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<?x21x128xf32>, [[PARAM_1_:%.+]]: tensor<128xf32>) -> tensor<?x21x128xf32> {
+// CHECK:           [[VAR_0_:%.+]] = tosa.const_shape  {values = dense<[1, 1, 128]> : tensor<3xindex>} : () -> !tosa.shape<3>
+// CHECK:           [[VAR_1_:%.+]] = tosa.reshape [[PARAM_1_]], [[VAR_0_]] : (tensor<128xf32>, !tosa.shape<3>) -> tensor<1x1x128xf32>
+// CHECK:           [[VAR_2_:%.+]] = tosa.add [[PARAM_0_]], [[VAR_1_]] : (tensor<?x21x128xf32>, tensor<1x1x128xf32>) -> tensor<?x21x128xf32>
+// CHECK:           return [[VAR_2_]] : tensor<?x21x128xf32>
+}
+
+// -----
+
 func.func @test_sub(%arg0: tensor<13x21x1xf32>, %arg1: tensor<13x21x1xf32>) -> tensor<13x21x1xf32> {
   %0 = "onnx.Sub"(%arg0, %arg1) : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xf32>
   "func.return"(%0) : (tensor<13x21x1xf32>) -> ()

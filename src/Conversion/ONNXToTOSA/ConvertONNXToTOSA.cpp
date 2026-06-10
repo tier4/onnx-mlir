@@ -13,7 +13,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "src/Conversion/ONNXToTOSA/ONNXToTOSACommon.hpp"
+#include "src/Dialect/ONNX/Transforms/ShapeInference.hpp"
 
 using namespace mlir;
 
@@ -25,8 +27,7 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
   // Math
   populateLoweringONNXElementwiseOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
-  populateLoweringONNXCastOpToTOSAPattern(
-      target, patterns, typeConverter, ctx);
+  populateLoweringONNXCastOpToTOSAPattern(target, patterns, typeConverter, ctx);
   populateLoweringONNXReduceMeanOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
   populateLoweringONNXReduceOpsToTOSAPattern(
@@ -49,8 +50,9 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
       target, patterns, typeConverter, ctx);
   populateLoweringONNXConstOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
-  populateLoweringONNXDimOpToTOSAPattern(
+  populateLoweringONNXCumSumOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
+  populateLoweringONNXDimOpToTOSAPattern(target, patterns, typeConverter, ctx);
   populateLoweringONNXExpandOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
   populateLoweringONNXGatherOpToTOSAPattern(
@@ -73,6 +75,19 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
       target, patterns, typeConverter, ctx);
 }
 
+// ONNXEntryPointOp is only meaningful for the onnx-mlir runtime; a TOSA
+// consumer has no use for it, so it is simply erased.
+class EraseONNXEntryPointLoweringToTOSA
+    : public OpConversionPattern<ONNXEntryPointOp> {
+public:
+  using OpConversionPattern<ONNXEntryPointOp>::OpConversionPattern;
+  LogicalResult matchAndRewrite(ONNXEntryPointOp op, OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 // Performs lowering to TOSA dialect
 struct FrontendToTosaLoweringPass
     : public PassWrapper<FrontendToTosaLoweringPass, OperationPass<ModuleOp>> {
@@ -93,6 +108,22 @@ void FrontendToTosaLoweringPass::runOnOperation() {
   ModuleOp module = getOperation();
   // Define final conversion target
   MLIRContext *context = &getContext();
+
+  // Rewrite ONNX idioms whose ops have data-dependent result shapes
+  // (NonZero) into static-shape equivalents before running the conversion.
+  // Shape inference propagates the now-static shapes through the graph so
+  // that no stale dynamic types remain at the rewritten seams.
+  {
+    RewritePatternSet preLoweringPatterns(context);
+    populateRewriteONNXNonZeroCompressScatterPattern(
+        preLoweringPatterns, context);
+    getShapeInferencePatterns(preLoweringPatterns);
+    GreedyRewriteConfig config;
+    config.setUseTopDownTraversal(true);
+    // Convergence is not required, in line with the shape inference pass.
+    (void)applyPatternsGreedily(module, std::move(preLoweringPatterns), config);
+  }
+
   RewritePatternSet patterns(context);
   ConversionTarget target(*context);
 
@@ -117,6 +148,7 @@ void FrontendToTosaLoweringPass::runOnOperation() {
 
   // Define patterns
   populateONNXToTOSAConversionPattern(target, patterns, typeConverter, context);
+  patterns.insert<EraseONNXEntryPointLoweringToTOSA>(typeConverter, context);
 
   if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
