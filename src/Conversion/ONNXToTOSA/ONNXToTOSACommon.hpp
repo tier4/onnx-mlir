@@ -155,5 +155,10 @@ void populateLoweringONNXTransposeOpToTOSAPattern(mlir::ConversionTarget &,
     mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
 void populateLoweringONNXUnsqueezeOpToTOSAPattern(mlir::ConversionTarget &,
     mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
+
+// ONNX-level pre-lowering rewrites that eliminate ops with data-dependent
+// result shapes (NonZero) which cannot be expressed in TOSA.
+void populateRewriteONNXNonZeroCompressScatterPattern(
+    mlir::RewritePatternSet &, mlir::MLIRContext *);
 } // namespace onnx_mlir
 #endif

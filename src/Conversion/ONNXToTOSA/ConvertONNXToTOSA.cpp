@@ -13,7 +13,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "src/Conversion/ONNXToTOSA/ONNXToTOSACommon.hpp"
+#include "src/Dialect/ONNX/Transforms/ShapeInference.hpp"
 
 using namespace mlir;
 
@@ -25,8 +27,7 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
   // Math
   populateLoweringONNXElementwiseOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
-  populateLoweringONNXCastOpToTOSAPattern(
-      target, patterns, typeConverter, ctx);
+  populateLoweringONNXCastOpToTOSAPattern(target, patterns, typeConverter, ctx);
   populateLoweringONNXReduceMeanOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
   populateLoweringONNXReduceOpsToTOSAPattern(
@@ -51,8 +52,7 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
       target, patterns, typeConverter, ctx);
   populateLoweringONNXCumSumOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
-  populateLoweringONNXDimOpToTOSAPattern(
-      target, patterns, typeConverter, ctx);
+  populateLoweringONNXDimOpToTOSAPattern(target, patterns, typeConverter, ctx);
   populateLoweringONNXExpandOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
   populateLoweringONNXGatherOpToTOSAPattern(
@@ -108,6 +108,22 @@ void FrontendToTosaLoweringPass::runOnOperation() {
   ModuleOp module = getOperation();
   // Define final conversion target
   MLIRContext *context = &getContext();
+
+  // Rewrite ONNX idioms whose ops have data-dependent result shapes
+  // (NonZero) into static-shape equivalents before running the conversion.
+  // Shape inference propagates the now-static shapes through the graph so
+  // that no stale dynamic types remain at the rewritten seams.
+  {
+    RewritePatternSet preLoweringPatterns(context);
+    populateRewriteONNXNonZeroCompressScatterPattern(
+        preLoweringPatterns, context);
+    getShapeInferencePatterns(preLoweringPatterns);
+    GreedyRewriteConfig config;
+    config.setUseTopDownTraversal(true);
+    // Convergence is not required, in line with the shape inference pass.
+    (void)applyPatternsGreedily(module, std::move(preLoweringPatterns), config);
+  }
+
   RewritePatternSet patterns(context);
   ConversionTarget target(*context);
 
