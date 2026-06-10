@@ -221,13 +221,15 @@ public:
     // Taylor coefficients for the odd terms of atan(z).
     Value c1 = tosaBuilder.getSplattedConst(1.0f, splatShape, elementType);
     Value c3 =
-        tosaBuilder.getSplattedConst(-1.0f / 3.0f, splatShape, elementType);
+        tosaBuilder.getSplattedConst(-0x1.55543ap-2, splatShape, elementType);
     Value c5 =
-        tosaBuilder.getSplattedConst(1.0f / 5.0f, splatShape, elementType);
+        tosaBuilder.getSplattedConst(0x1.992194p-3, splatShape, elementType);
     Value c7 =
-        tosaBuilder.getSplattedConst(-1.0f / 7.0f, splatShape, elementType);
+        tosaBuilder.getSplattedConst(-0x1.1c4eccp-3, splatShape, elementType);
     Value c9 =
-        tosaBuilder.getSplattedConst(1.0f / 9.0f, splatShape, elementType);
+        tosaBuilder.getSplattedConst(0x1.4e0b5p-4, splatShape, elementType);
+    Value c11 =
+        tosaBuilder.getSplattedConst(-0x1.ee3dfap-9, splatShape, elementType);
 
     // Stage 1: take |x| and remember the sign predicate.
     Value absX =
@@ -251,7 +253,9 @@ public:
     // Horner evaluation of p(z) = z * (c1 + z^2*(c3 + z^2*(c5 + z^2*(c7 +
     // z^2*c9)))).
     Value z2 = tosaBuilder.mul(z, z);
-    Value t = tosaBuilder.mul(z2, c9);
+    Value t = tosaBuilder.mul(z2, c11);
+    t = tosaBuilder.binaryOp<mlir::tosa::AddOp>(t, c9);
+    t = tosaBuilder.mul(t, z2);
     t = tosaBuilder.binaryOp<mlir::tosa::AddOp>(t, c7);
     t = tosaBuilder.mul(t, z2);
     t = tosaBuilder.binaryOp<mlir::tosa::AddOp>(t, c5);
