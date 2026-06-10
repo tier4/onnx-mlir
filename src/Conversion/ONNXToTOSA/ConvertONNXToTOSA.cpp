@@ -75,6 +75,19 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
       target, patterns, typeConverter, ctx);
 }
 
+// ONNXEntryPointOp is only meaningful for the onnx-mlir runtime; a TOSA
+// consumer has no use for it, so it is simply erased.
+class EraseONNXEntryPointLoweringToTOSA
+    : public OpConversionPattern<ONNXEntryPointOp> {
+public:
+  using OpConversionPattern<ONNXEntryPointOp>::OpConversionPattern;
+  LogicalResult matchAndRewrite(ONNXEntryPointOp op, OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 // Performs lowering to TOSA dialect
 struct FrontendToTosaLoweringPass
     : public PassWrapper<FrontendToTosaLoweringPass, OperationPass<ModuleOp>> {
@@ -119,6 +132,7 @@ void FrontendToTosaLoweringPass::runOnOperation() {
 
   // Define patterns
   populateONNXToTOSAConversionPattern(target, patterns, typeConverter, context);
+  patterns.insert<EraseONNXEntryPointLoweringToTOSA>(typeConverter, context);
 
   if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
