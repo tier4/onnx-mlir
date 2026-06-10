@@ -5,6 +5,7 @@ add_onnx_mlir_library(OMONNXToTOSA
   DialectBuilder.cpp
   ONNXToTOSALegalizeUtils.cpp
 
+  Math/Cast.cpp
   Math/Elementwise.cpp
   Math/Gemm.cpp
   Math/Softmax.cpp
