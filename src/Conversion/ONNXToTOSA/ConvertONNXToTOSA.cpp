@@ -43,6 +43,8 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
   populateLoweringONNXLayerNormalizationOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
   // Tensor
+  populateLoweringONNXConcatOpToTOSAPattern(
+      target, patterns, typeConverter, ctx);
   populateLoweringONNXConstOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
   populateLoweringONNXExpandOpToTOSAPattern(

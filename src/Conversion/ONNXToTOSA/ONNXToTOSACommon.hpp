@@ -125,6 +125,8 @@ void populateLoweringONNXLayerNormalizationOpToTOSAPattern(
     mlir::ConversionTarget &, mlir::RewritePatternSet &, mlir::TypeConverter &,
     mlir::MLIRContext *);
 // `Tensor` directory methods:
+void populateLoweringONNXConcatOpToTOSAPattern(mlir::ConversionTarget &,
+    mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
 void populateLoweringONNXConstOpToTOSAPattern(mlir::ConversionTarget &,
     mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
 void populateLoweringONNXExpandOpToTOSAPattern(mlir::ConversionTarget &,
