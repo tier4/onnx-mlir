@@ -21,6 +21,7 @@
 #include "src/Conversion/ONNXToTOSA/DialectBuilder.hpp"
 #include "src/Conversion/ONNXToTOSA/ONNXToTOSACommon.hpp"
 #include "src/Conversion/ONNXToTOSA/ONNXToTOSALegalizeUtils.hpp"
+#include "src/Dialect/ONNX/ONNXOps/ShapeHelper.hpp"
 
 using namespace mlir;
 
@@ -49,28 +50,47 @@ public:
       return rewriter.notifyMatchFailure(
           op, "TOSA MatMul lowering only supports static shapes");
 
-    if (aType.getRank() < 2 || bType.getRank() < 2)
-      return rewriter.notifyMatchFailure(
-          op, "TOSA MatMul lowering requires rank >= 2 inputs");
-
     auto resultType = mlir::dyn_cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
     if (!resultType)
       return rewriter.notifyMatchFailure(op, "result must be a ranked tensor");
 
-    // Step 1: normalize both inputs to 3-D operands with matching batch dims.
-    auto normalized = normalizeInputsTo3D(op, A, B, aType, bType, rewriter, loc);
-    if (failed(normalized))
-      return failure();
-    auto [a3d, b3d] = *normalized;
+    IndexExprBuilderForTosa createTosaIE(rewriter, loc);
+    ONNXMatMulOpShapeHelper shapeHelper(op, {}, &createTosaIE);
+    shapeHelper.computeShapeAndAssertOnFailure();
 
-    // Step 2: tosa.matmul on the 3-D operands.
+    SmallVector<int64_t> aDims, bDims;
+    IndexExpr::getLiteral(shapeHelper.aDims, aDims);
+    IndexExpr::getLiteral(shapeHelper.bDims, bDims);
+    int64_t rank = aDims.size(); // Padded rank, == bDims.size(), >= 2.
+
+    // Collapse each padded operand to the 3-D form tosa.matmul expects:
+    // [batch, rows, cols]. Padding only inserts size-1 dims, so a single
+    // reshape from the original operand performs padding, 1-D promotion and
+    // batch folding all at once.
+    int64_t batchA = dimProduct(aDims, 0, rank - 2);
+    int64_t batchB = dimProduct(bDims, 0, rank - 2);
+    Value a3d = reshapeTo3D(A, aType.getElementType(),
+        {batchA, aDims[rank - 2], aDims[rank - 1]}, loc, rewriter);
+    Value b3d = reshapeTo3D(B, bType.getElementType(),
+        {batchB, bDims[rank - 2], bDims[rank - 1]}, loc, rewriter);
+
+    // Reconcile batch dims by tiling the broadcast (size-1) side.
+    if (batchA != batchB) {
+      if (batchA == 1)
+        a3d = tileBatch3D(a3d, aType.getElementType(), batchB, loc, rewriter);
+      else if (batchB == 1)
+        b3d = tileBatch3D(b3d, bType.getElementType(), batchA, loc, rewriter);
+      else
+        return rewriter.notifyMatchFailure(op,
+            "MatMul batch dims are not broadcast-compatible for TOSA lowering");
+    }
+
+    // tosa.matmul on the 3-D operands, then restore the ONNX result shape.
     Value mm = tosa::CreateOpAndInfer<mlir::tosa::MatMulOp>(rewriter, loc,
         RankedTensorType::get(kDynamic3D, resultType.getElementType()), a3d,
         b3d)
                    .getResult();
-
-    // Step 3: reshape back to the expected result shape.
     Value result = tosaBuilder.reshape(mm, resultType.getShape());
     rewriter.replaceOp(op, {result});
     return success();
@@ -89,15 +109,6 @@ private:
         .getResult();
   }
 
-  /// Return the product of \p shape[start..end). All dims must be static.
-  static int64_t dimProduct(
-      ArrayRef<int64_t> shape, int64_t start, int64_t end) {
-    int64_t product = 1;
-    for (int64_t i = start; i < end; ++i)
-      product *= shape[i];
-    return product;
-  }
-
   /// Tile a 3-D value along its batch axis so that axis becomes \p targetBatch.
   static Value tileBatch3D(Value v, Type elemType, int64_t targetBatch,
       Location loc, ConversionPatternRewriter &rewriter) {
@@ -108,80 +119,13 @@ private:
         .getResult();
   }
 
-  /// Canonicalize one MatMul operand to a 3-D tensor [batch, R, C] without
-  /// consulting the other operand.  Rank-2 gets a unit batch prepended,
-  /// rank-3 is returned as-is, rank>3 has its leading dims folded into a
-  /// single batch dim.
-  static Value canonicalizeToBatch3D(Value x, RankedTensorType xType,
-      ConversionPatternRewriter &rewriter, Location loc) {
-    int64_t rank = xType.getRank();
-    auto shape = xType.getShape();
-    Type elem = xType.getElementType();
-    int64_t R = shape[rank - 2];
-    int64_t C = shape[rank - 1];
-
-    if (rank == 3)
-      return x;
-    if (rank == 2)
-      return reshapeTo3D(x, elem, {1, R, C}, loc, rewriter);
-
-    // rank > 3: fold leading dims into a single batch dim.
-    int64_t batch = dimProduct(shape, 0, rank - 2);
-    return reshapeTo3D(x, elem, {batch, R, C}, loc, rewriter);
-  }
-
-  /// Given two 3-D operands, make their batch dims agree.  Equal batches
-  /// pass through; a batch of 1 on one side is tiled to match the other.
-  /// Mismatched non-1 batches are an unsupported broadcast.
-  FailureOr<std::pair<Value, Value>> reconcileBatchDims(ONNXMatMulOp op,
-      Value a3d, Value b3d, ConversionPatternRewriter &rewriter,
-      Location loc) const {
-    auto aType = mlir::cast<RankedTensorType>(a3d.getType());
-    auto bType = mlir::cast<RankedTensorType>(b3d.getType());
-    int64_t batchA = aType.getShape()[0];
-    int64_t batchB = bType.getShape()[0];
-
-    if (batchA == batchB)
-      return std::make_pair(a3d, b3d);
-    if (batchA == 1)
-      return std::make_pair(
-          tileBatch3D(a3d, aType.getElementType(), batchB, loc, rewriter), b3d);
-    if (batchB == 1)
-      return std::make_pair(
-          a3d, tileBatch3D(b3d, bType.getElementType(), batchA, loc, rewriter));
-
-    return rewriter.notifyMatchFailure(
-        op, "MatMul batch dims are not broadcast-compatible for TOSA lowering");
-  }
-
-  /// Transform both inputs into 3-D tensors with matching batch dimensions,
-  /// ready for tosa.matmul.  Calls notifyMatchFailure on unsupported cases.
-  FailureOr<std::pair<Value, Value>> normalizeInputsTo3D(ONNXMatMulOp op,
-      Value A, Value B, RankedTensorType aType, RankedTensorType bType,
-      ConversionPatternRewriter &rewriter, Location loc) const {
-    int64_t aRank = aType.getRank();
-    int64_t bRank = bType.getRank();
-    auto aShape = aType.getShape();
-    auto bShape = bType.getShape();
-
-    // Fast path: B is a 2-D weight.  Fold all of A's non-K dims into one
-    // flat row dim so both operands stay at batch = 1 and we avoid tiling
-    // the weight.
-    if (bRank == 2 && aRank > 2) {
-      int64_t flatM = dimProduct(aShape, 0, aRank - 1);
-      int64_t K = aShape[aRank - 1], N = bShape[1];
-      Value a3d = reshapeTo3D(A, aType.getElementType(), {1, flatM, K}, loc,
-          rewriter);
-      Value b3d =
-          reshapeTo3D(B, bType.getElementType(), {1, K, N}, loc, rewriter);
-      return std::make_pair(a3d, b3d);
-    }
-
-    // Generic path: canonicalize each operand to 3-D independently, then
-    // reconcile batch dims.
-    Value a3d = canonicalizeToBatch3D(A, aType, rewriter, loc);
-    Value b3d = canonicalizeToBatch3D(B, bType, rewriter, loc);
-    return reconcileBatchDims(op, a3d, b3d, rewriter, loc);
+  /// Product of \p shape[start..end). All dims are static literals.
+  static int64_t dimProduct(
+      ArrayRef<int64_t> shape, int64_t start, int64_t end) {
+    int64_t product = 1;
+    for (int64_t i = start; i < end; ++i)
+      product *= shape[i];
+    return product;
   }
 };
 
