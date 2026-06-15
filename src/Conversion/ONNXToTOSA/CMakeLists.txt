@@ -7,6 +7,7 @@ add_onnx_mlir_library(OMONNXToTOSA
 
   Math/Elementwise.cpp
   Math/Gemm.cpp
+  Math/MatMul.cpp
   Math/Softmax.cpp
   Math/ReduceMean.cpp
   Math/Conv2D.cpp
