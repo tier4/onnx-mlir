@@ -48,9 +48,15 @@ public:
       return rewriter.notifyMatchFailure(
           op, "memrefs as inputs are unsupported by TOSA");
     }
+    // dilations=[1,1,...] (all ones) is equivalent to no dilation and is
+    // supported; only genuine (non-unit) dilation is unsupported by TOSA.
     if (dilations) {
-      return rewriter.notifyMatchFailure(
-          maxpoolOp, "dilations attribute is unsupported by TOSA");
+      for (Attribute d : dilations) {
+        if (mlir::cast<IntegerAttr>(d).getValue().getSExtValue() != 1) {
+          return rewriter.notifyMatchFailure(maxpoolOp,
+              "non-unit dilations attribute is unsupported by TOSA");
+        }
+      }
     }
     if (storageOrder && storageOrder.getSInt() != 0) {
       return rewriter.notifyMatchFailure(
