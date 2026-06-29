@@ -107,6 +107,29 @@ func.func @test_default_maxpoolsingleout_autopad_valid(%arg0 : tensor<5x5x16x13x
 
 // -----
 
+func.func @test_default_maxpoolsingleout_dilations_one(%arg0 : tensor<5x5x32x32xf32>) -> tensor<5x5x30x30xf32> {
+  %0 = "onnx.MaxPoolSingleOut"(%arg0) {dilations = [1, 1], kernel_shape = [3,3]} : (tensor<5x5x32x32xf32>) -> tensor<5x5x30x30xf32>
+  "func.return"(%0) : (tensor<5x5x30x30xf32>) -> ()
+}
+// CHECK-LABEL:  func.func @test_default_maxpoolsingleout_dilations_one
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<5x5x32x32xf32>) -> tensor<5x5x30x30xf32> {
+// CHECK:           [[VAR_0_:%.+]] = tosa.transpose [[PARAM_0_]] {perms = array<i32: 0, 2, 3, 1>} : (tensor<5x5x32x32xf32>) -> tensor<5x32x32x5xf32>
+// CHECK:           [[VAR_1_:%.+]] = tosa.max_pool2d [[VAR_0_]] {kernel = array<i64: 3, 3>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<5x32x32x5xf32>) -> tensor<5x30x30x5xf32>
+// CHECK:           [[VAR_2_:%.+]] = tosa.transpose [[VAR_1_]] {perms = array<i32: 0, 3, 1, 2>} : (tensor<5x30x30x5xf32>) -> tensor<5x5x30x30xf32>
+// CHECK:           return [[VAR_2_]] : tensor<5x5x30x30xf32>
+// CHECK:         }
+
+// -----
+
+func.func @test_default_maxpoolsingleout_dilations_nonone(%arg0 : tensor<5x5x32x32xf32>) -> tensor<5x5x28x28xf32> {
+  %0 = "onnx.MaxPoolSingleOut"(%arg0) {dilations = [2, 2], kernel_shape = [3,3]} : (tensor<5x5x32x32xf32>) -> tensor<5x5x28x28xf32>
+  "func.return"(%0) : (tensor<5x5x28x28xf32>) -> ()
+}
+// CHECK-LABEL:  func.func @test_default_maxpoolsingleout_dilations_nonone
+// CHECK:           "onnx.MaxPoolSingleOut"
+
+// -----
+
 func.func @test_default_maxpoolsingleout_same_upper_ceil_mode(%arg0 : tensor<5x5x16x13xf32>) -> tensor<5x5x4x4xf32> {
   %0 = "onnx.MaxPoolSingleOut"(%arg0) {auto_pad = "SAME_UPPER", ceil_mode = 1 : si64, kernel_shape = [4,4], strides = [4, 4] } : (tensor<5x5x16x13xf32>) -> tensor<5x5x4x4xf32>
   "func.return"(%0) : (tensor<5x5x4x4xf32>) -> ()
