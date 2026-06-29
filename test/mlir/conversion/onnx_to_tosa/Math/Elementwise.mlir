@@ -24,6 +24,22 @@ func.func @test_relu_dynamic(%arg0 : tensor<?x10xf32>) -> tensor<*xf32> {
 
 // -----
 
+func.func @test_leakyrelu(%arg0 : tensor<10x10xf32>) -> tensor<10x10xf32> {
+  %0 = "onnx.LeakyRelu"(%arg0) {alpha = 0.707 : f32} : (tensor<10x10xf32>) -> tensor<10x10xf32>
+  "func.return"(%0) : (tensor<10x10xf32>) -> ()
+// CHECK-LABEL:  func.func @test_leakyrelu
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<10x10xf32>) -> tensor<10x10xf32> {
+// CHECK-DAG:       [[VAR_0_:%.+]] = "tosa.const"() <{values = dense<7.070000e-01> : tensor<1x1xf32>}> : () -> tensor<1x1xf32>
+// CHECK-DAG:       [[VAR_1_:%.+]] = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x1xf32>}> : () -> tensor<1x1xf32>
+// CHECK-DAG:       [[VAR_2_:%.+]] = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+// CHECK-DAG:       [[VAR_3_:%.+]] = tosa.mul [[PARAM_0_]], [[VAR_0_]], [[VAR_2_]] : (tensor<10x10xf32>, tensor<1x1xf32>, tensor<1xi8>) -> tensor<10x10xf32>
+// CHECK-DAG:       [[VAR_4_:%.+]] = tosa.greater_equal [[PARAM_0_]], [[VAR_1_]] : (tensor<10x10xf32>, tensor<1x1xf32>) -> tensor<10x10xi1>
+// CHECK:           [[VAR_5_:%.+]] = tosa.select [[VAR_4_]], [[PARAM_0_]], [[VAR_3_]] : (tensor<10x10xi1>, tensor<10x10xf32>, tensor<10x10xf32>) -> tensor<10x10xf32>
+// CHECK:           return [[VAR_5_]] : tensor<10x10xf32>
+}
+
+// -----
+
 func.func @test_neg(%arg0: tensor<10x10xf32>) -> tensor<10x10xf32> {
   %0 = "onnx.Neg"(%arg0) : (tensor<10x10xf32>) -> tensor<10x10xf32>
   "func.return"(%0) : (tensor<10x10xf32>) -> ()
