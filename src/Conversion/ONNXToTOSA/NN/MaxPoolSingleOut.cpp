@@ -40,7 +40,8 @@ public:
     OpAdaptor adaptor(operands, maxpoolOp);
 
     Value input = adaptor.getX();
-    // The attributes storage_order and dilations are unsupported
+    // The attribute storage_order is unsupported. The dilations attribute is
+    // only supported when all dilation values are 1.
     IntegerAttr storageOrder = adaptor.getStorageOrderAttr();
     ArrayAttr dilations = adaptor.getDilationsAttr();
 
@@ -49,8 +50,12 @@ public:
           op, "memrefs as inputs are unsupported by TOSA");
     }
     if (dilations) {
-      return rewriter.notifyMatchFailure(
-          maxpoolOp, "dilations attribute is unsupported by TOSA");
+      if (llvm::any_of(dilations.getAsRange<IntegerAttr>(),
+              [](IntegerAttr dilation) { return dilation.getInt() != 1; })) {
+        return rewriter.notifyMatchFailure(maxpoolOp,
+            "dilations attribute is unsupported by TOSA unless all dilations "
+            "are 1");
+      }
     }
     if (storageOrder && storageOrder.getSInt() != 0) {
       return rewriter.notifyMatchFailure(
