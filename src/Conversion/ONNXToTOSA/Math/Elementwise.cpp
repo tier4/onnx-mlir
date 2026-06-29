@@ -382,6 +382,43 @@ public:
   }
 };
 
+class ONNXLeakyReluOpLoweringToTOSA
+    : public OpConversionPattern<ONNXLeakyReluOp> {
+public:
+  using OpConversionPattern<ONNXLeakyReluOp>::OpConversionPattern;
+  using OpAdaptor = typename ONNXLeakyReluOp::Adaptor;
+  LogicalResult matchAndRewrite(ONNXLeakyReluOp op, OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    Location loc = op->getLoc();
+    Value input = adaptor.getX();
+
+    auto inputType = mlir::dyn_cast<RankedTensorType>(input.getType());
+    if (!inputType)
+      return rewriter.notifyMatchFailure(op, "input must be a ranked tensor");
+    auto elementType = mlir::dyn_cast<FloatType>(inputType.getElementType());
+    if (!elementType)
+      return rewriter.notifyMatchFailure(
+          op, "`tosa` LeakyRelu lowering only supports float types");
+
+    TosaBuilder tosaBuilder(rewriter, loc);
+    ArrayRef<int64_t> shape = inputType.getShape();
+    float alpha = adaptor.getAlpha().convertToFloat();
+
+    // LeakyRelu(x) = x          if x >= 0
+    //             = alpha * x   otherwise
+    Value alphaConst = tosaBuilder.getSplattedConst(alpha, shape, elementType);
+    Value zero = tosaBuilder.getSplattedConst(0.0, shape, elementType);
+    Value alphaMulX = tosaBuilder.mul(input, alphaConst);
+    auto condType = inputType.clone(rewriter.getI1Type());
+    Value cond = mlir::tosa::GreaterEqualOp::create(
+        rewriter, loc, condType, input, zero);
+    Value result = mlir::tosa::SelectOp::create(
+        rewriter, loc, op.getType(), cond, input, alphaMulX);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
 class ONNXSqrtOpLoweringToTOSA : public OpConversionPattern<ONNXSqrtOp> {
 public:
   using OpConversionPattern<ONNXSqrtOp>::OpConversionPattern;
@@ -611,9 +648,10 @@ void populateLoweringONNXElementwiseOpToTOSAPattern(ConversionTarget &target,
       ONNXErfOpLoweringToTOSA, ONNXTanhOpLoweringToTOSA,
       ONNXGeluOpLoweringToTOSA, ONNXAtanOpLoweringToTOSA,
       ONNXFloorOpLoweringToTOSA, ONNXReluOpLoweringToTOSA,
-      ONNXSigmoidOpLoweringToTOSA, ONNXSqrtOpLoweringToTOSA,
-      ONNXClipOpLoweringToTOSA, ONNXMulOpLoweringToTOSA,
-      ONNXDivOpLoweringToTOSA, ONNXWhereOpLoweringToTOSA>(typeConverter, ctx);
+      ONNXLeakyReluOpLoweringToTOSA, ONNXSigmoidOpLoweringToTOSA,
+      ONNXSqrtOpLoweringToTOSA, ONNXClipOpLoweringToTOSA,
+      ONNXMulOpLoweringToTOSA, ONNXDivOpLoweringToTOSA,
+      ONNXWhereOpLoweringToTOSA>(typeConverter, ctx);
 }
 
 } // namespace onnx_mlir
