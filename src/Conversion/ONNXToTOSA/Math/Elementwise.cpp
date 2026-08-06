@@ -474,6 +474,117 @@ static ElementsAttr getScalarConstantElementsAttr(Value v) {
   return nullptr;
 }
 
+// Lower `1 - exp(x)` to a numerically stable -expm1(x).
+//
+// Written literally, `1 - exp(x)` loses all precision when exp(x) is close to 1:
+// the two operands agree to within half a ULP and the difference rounds to
+// exactly zero. In f32 the model this pattern targets computes
+// exp(x) = 0.99989, so 1 - exp(x) = 1.0997e-04 and everything is fine; in f16
+// the ULP near 1.0 is 2^-10 = 9.77e-4, the difference is under half a ULP,
+// exp(x) rounds to exactly 1.0, and the result is 0. Downstream that becomes
+// sqrt(0) = 0, then a division by it, then 0 * inf -- NaN across the tensor.
+// (This is sqrt(1 - alpha_bar), the diffusion noise schedule at low noise.)
+//
+// The value itself is representable in f16 (1.0997e-04 >> the 6.1e-05 smallest
+// normal); only the subtraction destroys it. So compute expm1 directly, via
+// Kahan's identity, which keeps the whole thing in the narrow type:
+//
+//   u = exp(x);  expm1(x) = (u - 1) * x / log(u),  with expm1(x) = x when u == 1
+//
+// Both select arms are evaluated elementwise, so log(u) is clamped away from
+// zero before the divide -- otherwise the discarded arm would manufacture the
+// inf/NaN this pattern exists to avoid.
+class ONNXSubOneMinusExpLoweringToTOSA
+    : public OpConversionPattern<ONNXSubOp> {
+public:
+  using OpConversionPattern<ONNXSubOp>::OpConversionPattern;
+  using OpAdaptor = typename ONNXSubOp::Adaptor;
+
+  // Higher benefit than the generic Sub -> tosa.sub lowering so this fires first.
+  ONNXSubOneMinusExpLoweringToTOSA(TypeConverter &tc, MLIRContext *ctx)
+      : OpConversionPattern<ONNXSubOp>(tc, ctx, /*benefit=*/10) {}
+
+  LogicalResult matchAndRewrite(ONNXSubOp op, OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    Location loc = op->getLoc();
+
+    // lhs must be an all-ones constant.
+    ElementsAttr lhsAttr = getScalarConstantElementsAttr(adaptor.getA());
+    if (!lhsAttr || !mlir::isa<FloatType>(lhsAttr.getElementType()))
+      return rewriter.notifyMatchFailure(op, "lhs is not a float constant");
+    bool allOnes = true;
+    for (APFloat v : lhsAttr.getValues<APFloat>()) {
+      if (!v.isExactlyValue(1.0)) { allOnes = false; break; }
+    }
+    if (!allOnes)
+      return rewriter.notifyMatchFailure(op, "lhs constant is not 1.0");
+
+    // rhs must be exp(x). Match either the un-converted onnx.Exp or, if the
+    // operand was already rewritten, the tosa.exp it became.
+    Value x;
+    if (auto e = mlir::dyn_cast_or_null<ONNXExpOp>(adaptor.getB().getDefiningOp()))
+      x = e.getInput();
+    else if (auto e = mlir::dyn_cast_or_null<mlir::tosa::ExpOp>(
+                 adaptor.getB().getDefiningOp()))
+      x = e.getInput1();
+    else
+      return rewriter.notifyMatchFailure(op, "rhs is not exp(x)");
+
+    auto xType = mlir::dyn_cast<RankedTensorType>(x.getType());
+    if (!xType)
+      return rewriter.notifyMatchFailure(op, "exp operand is not ranked");
+    auto elemType = mlir::dyn_cast<FloatType>(xType.getElementType());
+    if (!elemType)
+      return rewriter.notifyMatchFailure(op, "only float types are supported");
+    // Only sound when the result shape follows x (no broadcast of the 1.0).
+    auto resType = mlir::dyn_cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    if (!resType || resType.getShape() != xType.getShape())
+      return rewriter.notifyMatchFailure(op, "shape is broadcast, not elementwise");
+
+    TosaBuilder tosaBuilder(rewriter, loc);
+    ArrayRef<int64_t> shape = xType.getShape();
+    Value one = tosaBuilder.getSplattedConst(1.0, shape, elemType);
+    Value zero = tosaBuilder.getSplattedConst(0.0, shape, elemType);
+
+    Value u = tosa::CreateOpAndInfer<mlir::tosa::ExpOp>(
+        rewriter, loc, resType, x);
+    Value uMinusOne = tosaBuilder.binaryOp<mlir::tosa::SubOp>(u, one);
+    Value logU = tosa::CreateOpAndInfer<mlir::tosa::LogOp>(
+        rewriter, loc, resType, u);
+    // Keep the divide finite in the arm that select will throw away.
+    Value logIsZero = tosaBuilder.binaryOp<mlir::tosa::EqualOp>(
+        logU, zero, rewriter.getI1Type());
+    Value safeLogU = tosaBuilder.select(logIsZero, one, logU);
+    Value recipLog = tosaBuilder.reciprocal(safeLogU);
+    // Association matters in a narrow type: (u-1)*x multiplies two small
+    // numbers first (~1e-3 * 1e-3 = 1e-6), which is subnormal in f16 and
+    // flushes to zero. x/log(u) is O(1), so scale by that first.
+    Value xOverLogU = tosaBuilder.mul(x, recipLog);
+    Value ratio = tosaBuilder.mul(uMinusOne, xOverLogU);
+
+    // u == 1 is the cancelling case: expm1(x) -> x.
+    Value uIsOne = tosaBuilder.binaryOp<mlir::tosa::EqualOp>(
+        u, one, rewriter.getI1Type());
+    Value expm1 = tosaBuilder.select(uIsOne, x, ratio);
+
+    // u == 0 is the other end: exp(x) underflows to zero (x < -16.6 in f16),
+    // where log(u) = -inf makes the ratio evaluate to 0 instead of the correct
+    // -1. Not reached by the current fixture, but a different input
+    // distribution would silently get 1 - exp(x) = 0 instead of 1.
+    Value negOne = tosaBuilder.getSplattedConst(-1.0, shape, elemType);
+    Value uIsZero = tosaBuilder.binaryOp<mlir::tosa::EqualOp>(
+        u, zero, rewriter.getI1Type());
+    expm1 = tosaBuilder.select(uIsZero, negOne, expm1);
+
+    // 1 - exp(x) = -expm1(x)
+    Value result = tosa::CreateOpAndInfer<mlir::tosa::NegateOp>(
+        rewriter, loc, resType, expm1);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
 class ONNXClipOpLoweringToTOSA : public OpConversionPattern<ONNXClipOp> {
 public:
   using OpConversionPattern::OpConversionPattern;
@@ -652,6 +763,8 @@ void populateLoweringONNXElementwiseOpToTOSAPattern(ConversionTarget &target,
       ONNXSqrtOpLoweringToTOSA, ONNXClipOpLoweringToTOSA,
       ONNXMulOpLoweringToTOSA, ONNXDivOpLoweringToTOSA,
       ONNXWhereOpLoweringToTOSA>(typeConverter, ctx);
+  // Numerically stable 1 - exp(x); higher benefit than the generic Sub.
+  patterns.insert<ONNXSubOneMinusExpLoweringToTOSA>(typeConverter, ctx);
 }
 
 } // namespace onnx_mlir
