@@ -4,6 +4,7 @@ add_onnx_mlir_library(OMONNXToTOSA
   ConvertONNXToTOSA.cpp
   DialectBuilder.cpp
   ONNXToTOSALegalizeUtils.cpp
+  SinkReshapeThroughElementwise.cpp
 
   Math/Cast.cpp
   Math/Elementwise.cpp

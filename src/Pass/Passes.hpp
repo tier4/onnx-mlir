@@ -157,6 +157,10 @@ std::unique_ptr<mlir::Pass> createConvertKrnlToLLVMPass(bool verifyInputTensors,
 /// Pass for lowering Onnx ops to TOSA dialect
 std::unique_ptr<mlir::Pass> createConvertONNXToTOSAPass();
 
+/// Pass sinking tosa.reshape past elementwise consumers so that a matmul
+/// and its epilogue stay adjacent and can be fused by the backend.
+std::unique_ptr<mlir::Pass> createSinkReshapeThroughElementwisePass();
+
 /// Pass for lowering Onnx ops to Linalg dialect
 std::unique_ptr<mlir::Pass> createConvertONNXToLinalg();
 std::unique_ptr<mlir::Pass> createConvertONNXToLinalg(
