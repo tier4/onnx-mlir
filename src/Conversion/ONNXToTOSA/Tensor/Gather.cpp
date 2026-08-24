@@ -81,6 +81,33 @@ public:
     int64_t W = std::accumulate(indicesShape.begin(), indicesShape.end(),
         static_cast<int64_t>(1), std::multiplies<int64_t>());
 
+    // Fast path: a single COMPILE-TIME index selects one plane of `data`
+    // along `axis` -- that is a slice, not a gather. Lowering it to
+    // tosa.slice keeps the consumer reading the original buffer through a
+    // static offset; the tosa.gather form below materializes a copy of the
+    // selected plane and is opaque to downstream view folding. (Observed as
+    // QKV splits and K/V selects costing whole dispatches per layer.)
+    if (resultType.hasStaticShape() && W == 1) {
+      ElementsAttr indicesAttr =
+          getElementAttributeFromONNXValue(op.getIndices());
+      if (indicesAttr && indicesAttr.getNumElements() == 1) {
+        int64_t index =
+            (*indicesAttr.getValues<APInt>().begin()).getSExtValue();
+        if (index < 0)
+          index += K;
+        if (index < 0 || index >= K)
+          return rewriter.notifyMatchFailure(op, "constant index range.");
+        llvm::SmallVector<int64_t, 4> starts(rank, 0);
+        llvm::SmallVector<int64_t, 4> sizes(dataShape.begin(), dataShape.end());
+        starts[axis] = index;
+        sizes[axis] = 1;
+        Value sliced = tosaBuilder.slice(data, sizes, starts);
+        rewriter.replaceOp(
+            op, tosaBuilder.reshape(sliced, resultType.getShape()));
+        return success();
+      }
+    }
+
     // Move the gathered axis to the front, then collapse to [1, K, C].
     Value values = data;
     if (axis != 0) {
