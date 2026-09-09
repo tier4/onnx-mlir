@@ -45,6 +45,16 @@ func.func @test_not(%arg0: tensor<10x10xi1>) -> tensor<10x10xi1> {
 
 // -----
 
+func.func @test_bitwise_not(%arg0: tensor<10x10xi32>) -> tensor<10x10xi32> {
+  %0 = "onnx.BitwiseNot"(%arg0) : (tensor<10x10xi32>) -> tensor<10x10xi32>
+  "func.return"(%0) : (tensor<10x10xi32>) -> ()
+// CHECK-LABEL:  func @test_bitwise_not
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<10x10xi32>) -> tensor<10x10xi32> {
+// CHECK: [[VAR_0_:%.+]] = tosa.bitwise_not [[PARAM_0_]] : (tensor<10x10xi32>) -> tensor<10x10xi32>
+}
+
+// -----
+
 func.func @test_floor(%arg0: tensor<10x10xf32>) -> tensor<10x10xf32> {
   %0 = "onnx.Floor"(%arg0) : (tensor<10x10xf32>) -> tensor<10x10xf32>
   "func.return"(%0) : (tensor<10x10xf32>) -> ()
@@ -288,6 +298,36 @@ func.func @test_less_or_equal(%arg0: tensor<13x21x1xf32>, %arg1: tensor<13x21x1x
 // CHECK-LABEL:  func @test_less_or_equal
 // CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xf32>, [[PARAM_1_:%.+]]: tensor<13x21x1xf32>) -> tensor<13x21x1xi1> {
 // CHECK-NEXT:      [[VAR_0_:%.+]] = tosa.greater_equal [[PARAM_1_]], [[PARAM_0_]] : (tensor<13x21x1xf32>, tensor<13x21x1xf32>) -> tensor<13x21x1xi1>
+}
+
+// -----
+
+func.func @test_bitwise_and(%arg0: tensor<13x21x1xi32>, %arg1: tensor<13x21x1xi32>) -> tensor<13x21x1xi32> {
+  %0 = "onnx.BitwiseAnd"(%arg0, %arg1) : (tensor<13x21x1xi32>, tensor<13x21x1xi32>) -> tensor<13x21x1xi32>
+  "func.return"(%0) : (tensor<13x21x1xi32>) -> ()
+// CHECK-LABEL:  func @test_bitwise_and
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xi32>, [[PARAM_1_:%.+]]: tensor<13x21x1xi32>) -> tensor<13x21x1xi32> {
+// CHECK-NEXT:      [[VAR_0_:%.+]] = tosa.bitwise_and [[PARAM_0_]], [[PARAM_1_]] : (tensor<13x21x1xi32>, tensor<13x21x1xi32>) -> tensor<13x21x1xi32>
+}
+
+// -----
+
+func.func @test_bitwise_or(%arg0: tensor<13x21x1xi32>, %arg1: tensor<13x21x1xi32>) -> tensor<13x21x1xi32> {
+  %0 = "onnx.BitwiseOr"(%arg0, %arg1) : (tensor<13x21x1xi32>, tensor<13x21x1xi32>) -> tensor<13x21x1xi32>
+  "func.return"(%0) : (tensor<13x21x1xi32>) -> ()
+// CHECK-LABEL:  func @test_bitwise_or
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xi32>, [[PARAM_1_:%.+]]: tensor<13x21x1xi32>) -> tensor<13x21x1xi32> {
+// CHECK-NEXT:      [[VAR_0_:%.+]] = tosa.bitwise_or [[PARAM_0_]], [[PARAM_1_]] : (tensor<13x21x1xi32>, tensor<13x21x1xi32>) -> tensor<13x21x1xi32>
+}
+
+// -----
+
+func.func @test_bitwise_xor(%arg0: tensor<13x21x1xi32>, %arg1: tensor<13x21x1xi32>) -> tensor<13x21x1xi32> {
+  %0 = "onnx.BitwiseXor"(%arg0, %arg1) : (tensor<13x21x1xi32>, tensor<13x21x1xi32>) -> tensor<13x21x1xi32>
+  "func.return"(%0) : (tensor<13x21x1xi32>) -> ()
+// CHECK-LABEL:  func @test_bitwise_xor
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<13x21x1xi32>, [[PARAM_1_:%.+]]: tensor<13x21x1xi32>) -> tensor<13x21x1xi32> {
+// CHECK-NEXT:      [[VAR_0_:%.+]] = tosa.bitwise_xor [[PARAM_0_]], [[PARAM_1_]] : (tensor<13x21x1xi32>, tensor<13x21x1xi32>) -> tensor<13x21x1xi32>
 }
 
 // -----
