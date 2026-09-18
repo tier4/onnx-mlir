@@ -143,3 +143,67 @@ func.func @test_onnx_conv2d_autopad(%arg0: tensor<5x3x125x256xf32>, %arg1 : tens
 // CHECK:           %[[VAL_6:.*]] = tosa.transpose %[[VAL_5]] {perms = array<i32: 0, 3, 1, 2>} : (tensor<5x125x256x2xf32>) -> tensor<5x2x125x256xf32>
 // CHECK:           return %[[VAL_6]] : tensor<5x2x125x256xf32>
 }
+
+// -----
+
+func.func @test_onnx_conv2d_trim_trailing_pad(%arg0: tensor<1x3x512x512xf32>, %arg1 : tensor<4x3x3x3xf32>, %arg2: tensor<4xf32>) -> tensor<*xf32> {
+  %0 = "onnx.Conv"(%arg0, %arg1, %arg2) {dilations = [1, 1], pads = [1, 1, 1, 1], strides = [2, 2]} : (tensor<1x3x512x512xf32>, tensor<4x3x3x3xf32>, tensor<4xf32>) -> tensor<*xf32>
+  return %0 : tensor<*xf32>
+// CHECK-LABEL:  func.func @test_onnx_conv2d_trim_trailing_pad
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<1x3x512x512xf32>, [[PARAM_1_:%.+]]: tensor<4x3x3x3xf32>, [[PARAM_2_:%.+]]: tensor<4xf32>) -> tensor<1x4x256x256xf32> {
+// CHECK-DAG:       [[VAR_0_:%.+]] = tosa.transpose [[PARAM_0_]] {perms = array<i32: 0, 2, 3, 1>} : (tensor<1x3x512x512xf32>) -> tensor<1x512x512x3xf32>
+// CHECK-DAG:       [[VAR_1_:%.+]] = tosa.transpose [[PARAM_1_]] {perms = array<i32: 0, 2, 3, 1>} : (tensor<4x3x3x3xf32>) -> tensor<4x3x3x3xf32>
+// CHECK-DAG:       [[VAR_2_:%.+]] = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+// CHECK:           [[VAR_3_:%.+]] = tosa.conv2d [[VAR_0_]], [[VAR_1_]], [[PARAM_2_]], [[VAR_2_]], [[VAR_2_]] {acc_type = f32, dilation = array<i64: 1, 1>, pad = array<i64: 1, 0, 1, 0>, stride = array<i64: 2, 2>} : (tensor<1x512x512x3xf32>, tensor<4x3x3x3xf32>, tensor<4xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x256x256x4xf32>
+// CHECK:           [[VAR_4_:%.+]] = tosa.transpose [[VAR_3_]] {perms = array<i32: 0, 3, 1, 2>} : (tensor<1x256x256x4xf32>) -> tensor<1x4x256x256xf32>
+// CHECK:           return [[VAR_4_]] : tensor<1x4x256x256xf32>
+// CHECK:         }
+}
+
+// -----
+
+func.func @test_onnx_conv1d(%arg0: tensor<1x32x1xf32>, %arg1 : tensor<32768x32x3xf32>, %arg2: tensor<32768xf32>) -> tensor<*xf32> {
+  %0 = "onnx.Conv"(%arg0, %arg1, %arg2) {dilations = [1], pads = [1, 1], strides = [1]} : (tensor<1x32x1xf32>, tensor<32768x32x3xf32>, tensor<32768xf32>) -> tensor<*xf32>
+  return %0 : tensor<*xf32>
+// CHECK-LABEL:  func.func @test_onnx_conv1d
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<1x32x1xf32>, [[PARAM_1_:%.+]]: tensor<32768x32x3xf32>, [[PARAM_2_:%.+]]: tensor<32768xf32>) -> tensor<1x32768x1xf32> {
+// CHECK:           [[VAR_0_:%.+]] = tosa.const_shape  {values = dense<[1, 32, 1, 1]> : tensor<4xindex>} : () -> !tosa.shape<4>
+// CHECK-DAG:       [[VAR_1_:%.+]] = tosa.reshape [[PARAM_0_]], [[VAR_0_]] : (tensor<1x32x1xf32>, !tosa.shape<4>) -> tensor<1x32x1x1xf32>
+// CHECK-DAG:       [[VAR_2_:%.+]] = tosa.const_shape  {values = dense<[32768, 32, 3, 1]> : tensor<4xindex>} : () -> !tosa.shape<4>
+// CHECK-NOT: separator of consecutive DAGs
+// CHECK-DAG:       [[VAR_3_:%.+]] = tosa.reshape [[PARAM_1_]], [[VAR_2_]] : (tensor<32768x32x3xf32>, !tosa.shape<4>) -> tensor<32768x32x3x1xf32>
+// CHECK-DAG:       [[VAR_4_:%.+]] = tosa.transpose [[VAR_1_]] {perms = array<i32: 0, 2, 3, 1>} : (tensor<1x32x1x1xf32>) -> tensor<1x1x1x32xf32>
+// CHECK-NOT: separator of consecutive DAGs
+// CHECK-DAG:       [[VAR_5_:%.+]] = tosa.transpose [[VAR_3_]] {perms = array<i32: 0, 2, 3, 1>} : (tensor<32768x32x3x1xf32>) -> tensor<32768x3x1x32xf32>
+// CHECK-DAG:       [[VAR_6_:%.+]] = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+// CHECK:           [[VAR_7_:%.+]] = tosa.conv2d [[VAR_4_]], [[VAR_5_]], [[PARAM_2_]], [[VAR_6_]], [[VAR_6_]] {acc_type = f32, dilation = array<i64: 1, 1>, pad = array<i64: 1, 1, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x1x1x32xf32>, tensor<32768x3x1x32xf32>, tensor<32768xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x1x1x32768xf32>
+// CHECK-DAG:       [[VAR_8_:%.+]] = tosa.transpose [[VAR_7_]] {perms = array<i32: 0, 3, 1, 2>} : (tensor<1x1x1x32768xf32>) -> tensor<1x32768x1x1xf32>
+// CHECK-DAG:       [[VAR_9_:%.+]] = tosa.const_shape  {values = dense<[1, 32768, 1]> : tensor<3xindex>} : () -> !tosa.shape<3>
+// CHECK:           [[VAR_10_:%.+]] = tosa.reshape [[VAR_8_]], [[VAR_9_]] : (tensor<1x32768x1x1xf32>, !tosa.shape<3>) -> tensor<1x32768x1xf32>
+// CHECK:           return [[VAR_10_]] : tensor<1x32768x1xf32>
+// CHECK:         }
+}
+
+// -----
+
+func.func @test_onnx_conv1d_stride_trim_trailing_pad(%arg0: tensor<1x3x512xf32>, %arg1 : tensor<4x3x3xf32>, %arg2: tensor<4xf32>) -> tensor<*xf32> {
+  %0 = "onnx.Conv"(%arg0, %arg1, %arg2) {dilations = [1], pads = [1, 1], strides = [2]} : (tensor<1x3x512xf32>, tensor<4x3x3xf32>, tensor<4xf32>) -> tensor<*xf32>
+  return %0 : tensor<*xf32>
+// CHECK-LABEL:  func.func @test_onnx_conv1d_stride_trim_trailing_pad
+// CHECK-SAME:   ([[PARAM_0_:%.+]]: tensor<1x3x512xf32>, [[PARAM_1_:%.+]]: tensor<4x3x3xf32>, [[PARAM_2_:%.+]]: tensor<4xf32>) -> tensor<1x4x256xf32> {
+// CHECK:           [[VAR_0_:%.+]] = tosa.const_shape  {values = dense<[1, 3, 512, 1]> : tensor<4xindex>} : () -> !tosa.shape<4>
+// CHECK-DAG:       [[VAR_1_:%.+]] = tosa.reshape [[PARAM_0_]], [[VAR_0_]] : (tensor<1x3x512xf32>, !tosa.shape<4>) -> tensor<1x3x512x1xf32>
+// CHECK-DAG:       [[VAR_2_:%.+]] = tosa.const_shape  {values = dense<[4, 3, 3, 1]> : tensor<4xindex>} : () -> !tosa.shape<4>
+// CHECK-NOT: separator of consecutive DAGs
+// CHECK-DAG:       [[VAR_3_:%.+]] = tosa.reshape [[PARAM_1_]], [[VAR_2_]] : (tensor<4x3x3xf32>, !tosa.shape<4>) -> tensor<4x3x3x1xf32>
+// CHECK-DAG:       [[VAR_4_:%.+]] = tosa.transpose [[VAR_1_]] {perms = array<i32: 0, 2, 3, 1>} : (tensor<1x3x512x1xf32>) -> tensor<1x512x1x3xf32>
+// CHECK-NOT: separator of consecutive DAGs
+// CHECK-DAG:       [[VAR_5_:%.+]] = tosa.transpose [[VAR_3_]] {perms = array<i32: 0, 2, 3, 1>} : (tensor<4x3x3x1xf32>) -> tensor<4x3x1x3xf32>
+// CHECK-DAG:       [[VAR_6_:%.+]] = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+// CHECK:           [[VAR_7_:%.+]] = tosa.conv2d [[VAR_4_]], [[VAR_5_]], [[PARAM_2_]], [[VAR_6_]], [[VAR_6_]] {acc_type = f32, dilation = array<i64: 1, 1>, pad = array<i64: 1, 0, 0, 0>, stride = array<i64: 2, 1>} : (tensor<1x512x1x3xf32>, tensor<4x3x1x3xf32>, tensor<4xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x256x1x4xf32>
+// CHECK-DAG:       [[VAR_8_:%.+]] = tosa.transpose [[VAR_7_]] {perms = array<i32: 0, 3, 1, 2>} : (tensor<1x256x1x4xf32>) -> tensor<1x4x256x1xf32>
+// CHECK-DAG:       [[VAR_9_:%.+]] = tosa.const_shape  {values = dense<[1, 4, 256]> : tensor<3xindex>} : () -> !tosa.shape<3>
+// CHECK:           [[VAR_10_:%.+]] = tosa.reshape [[VAR_8_]], [[VAR_9_]] : (tensor<1x4x256x1xf32>, !tosa.shape<3>) -> tensor<1x4x256xf32>
+// CHECK:           return [[VAR_10_]] : tensor<1x4x256xf32>
+// CHECK:         }
+}

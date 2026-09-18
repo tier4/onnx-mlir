@@ -85,6 +85,31 @@ Value createConvInGroups(PatternRewriter &rewriter, Operation *op,
   return conv2D;
 }
 
+/// ONNX rounds the convolution output size down, while tosa.conv2d requires
+/// `input - 1 + padBegin + padEnd - (kernel - 1) * dilation` to be a multiple
+/// of the stride. The remainder counts trailing padding that sits past the
+/// last window and never contributes to a result element, so dropping it from
+/// padEnd leaves both the output size and its values unchanged.
+void trimUnusedTrailingPads(llvm::ArrayRef<int64_t> inputShape,
+    llvm::ArrayRef<int64_t> weightShape, llvm::ArrayRef<int64_t> strides,
+    llvm::ArrayRef<int64_t> dilations, llvm::MutableArrayRef<int64_t> pads) {
+  const int64_t spatialRank = pads.size() / 2;
+  for (int64_t i = 0; i < spatialRank; ++i) {
+    const int64_t inputDim = inputShape[i + 2];
+    const int64_t kernelDim = weightShape[i + 2];
+    if (ShapedType::isDynamic(inputDim) || ShapedType::isDynamic(kernelDim))
+      continue;
+    int64_t &padEnd = pads[i + spatialRank];
+    const int64_t span =
+        inputDim - 1 + pads[i] + padEnd - (kernelDim - 1) * dilations[i];
+    if (span <= 0)
+      continue;
+    const int64_t unused = span % strides[i];
+    if (unused <= padEnd)
+      padEnd -= unused;
+  }
+}
+
 class ONNXConvOpLoweringToTOSA : public ConversionPattern {
 public:
   ONNXConvOpLoweringToTOSA(MLIRContext *ctx)
@@ -111,14 +136,42 @@ public:
     ONNXConvOpShapeHelper shapeHelper(op, operands, &createTosaIE);
     shapeHelper.computeShapeAndAssertOnFailure();
 
-    auto weightShape = weightType.getShape();
-
     Type resultType = convOp.getResult().getType();
 
-    if (inputType.getShape().size() != 4) {
+    const int64_t rank = inputType.getRank();
+    if (rank != 3 && rank != 4) {
       return rewriter.notifyMatchFailure(
-          convOp, "only 2d tensor support is implemented");
+          convOp, "only 1d and 2d convolutions are implemented");
     }
+    const bool is1D = rank == 3;
+    if (is1D && !(inputType.hasStaticShape() && weightType.hasStaticShape())) {
+      return rewriter.notifyMatchFailure(
+          convOp, "1d convolution needs static input and weight shapes");
+    }
+
+    if (!IndexExpr::isLiteral(shapeHelper.pads))
+      return rewriter.notifyMatchFailure(op, "pads is not a literal.");
+    llvm::SmallVector<int64_t, 4> pads;
+    IndexExpr::getLiteral(shapeHelper.pads, pads);
+    llvm::SmallVector<int64_t, 2> strides(shapeHelper.strides);
+    llvm::SmallVector<int64_t, 2> dilations(shapeHelper.dilations);
+    llvm::SmallVector<int64_t, 4> inputShape(inputType.getShape());
+    llvm::SmallVector<int64_t, 4> weightShape(weightType.getShape());
+
+    // tosa has no conv1d, so a [N,C,W] convolution runs as a 2d one over a
+    // trailing width of 1. No stride, pad or dilation reaches that dim, so the
+    // result is the 1d one with a trailing 1 that is reshaped away below.
+    if (is1D) {
+      inputShape.push_back(1);
+      weightShape.push_back(1);
+      input = tosaBuilder.reshape(input, inputShape);
+      weights = tosaBuilder.reshape(weights, weightShape);
+      pads = {pads[0], 0, pads[1], 0};
+      strides.push_back(1);
+      dilations.push_back(1);
+    }
+
+    trimUnusedTrailingPads(inputShape, weightShape, strides, dilations, pads);
 
     // Convert input [N,IC,IH,IW] -> [N,IH,IW,IC]
     Value newInput = tosaBuilder.transpose(input, {0, 2, 3, 1});
@@ -134,15 +187,9 @@ public:
           rewriter, convOp->getLoc(), newBiasAttr.getType(), newBiasAttr);
     }
 
-    DenseI64ArrayAttr dilations =
-        rewriter.getDenseI64ArrayAttr(shapeHelper.dilations);
-    DenseI64ArrayAttr strides =
-        rewriter.getDenseI64ArrayAttr(shapeHelper.strides);
+    DenseI64ArrayAttr newDilations = rewriter.getDenseI64ArrayAttr(dilations);
+    DenseI64ArrayAttr newStrides = rewriter.getDenseI64ArrayAttr(strides);
 
-    if (!IndexExpr::isLiteral(shapeHelper.pads))
-      return rewriter.notifyMatchFailure(op, "pads is not a literal.");
-    llvm::SmallVector<int64_t, 4> pads;
-    IndexExpr::getLiteral(shapeHelper.pads, pads);
     // reorder padding values
     DenseI64ArrayAttr newPads =
         rewriter.getDenseI64ArrayAttr({pads[0], pads[2], pads[1], pads[3]});
@@ -161,15 +208,21 @@ public:
 
       conv2D = tosa::CreateOpAndInfer<mlir::tosa::Conv2DOp>(rewriter,
           convOp->getLoc(), newConvOutputType, newInput, newWeight, bias,
-          newPads, strides, dilations, accType);
+          newPads, newStrides, newDilations, accType);
     } else {
       conv2D = createConvInGroups(rewriter, convOp, tosaBuilder, resultType,
-          weightShape, newInput, newWeight, bias, group, newPads, strides,
-          dilations, accType);
+          weightShape, newInput, newWeight, bias, group, newPads, newStrides,
+          newDilations, accType);
     }
 
     // Convert output [N,OH,OW,OC] -> [N,OC,OH,OW]
     Value newOutput = tosaBuilder.transpose(conv2D, {0, 3, 1, 2});
+
+    if (is1D) {
+      llvm::SmallVector<int64_t, 3> outputShape(
+          mlir::cast<ShapedType>(resultType).getShape());
+      newOutput = tosaBuilder.reshape(newOutput, outputShape);
+    }
 
     rewriter.replaceOp(convOp, {newOutput});
     return success();
