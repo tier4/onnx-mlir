@@ -30,6 +30,7 @@ add_onnx_mlir_library(OMONNXToTOSA
   Tensor/Slice.cpp
   Tensor/Split.cpp
   Tensor/SqueezeUnsqueeze.cpp
+  Tensor/Tile.cpp
   Tensor/Transpose.cpp
 
   LINK_LIBS PUBLIC
