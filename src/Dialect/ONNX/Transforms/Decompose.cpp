@@ -565,6 +565,98 @@ struct DecomposeConvTransposePattern
   }
 };
 
+// A ConvTranspose whose kernel equals its stride (no padding, no dilation,
+// group 1) writes every input pixel to its own disjoint s x s output block:
+//   Y[n, oc, h*sH + i, w*sW + j] = B[oc] + sum_ic X[n, ic, h, w] * W[ic, oc, i, j]
+// That is a plain matmul [N*H*W, IC] x [IC, OC*sH*sW] followed by a
+// depth-to-space shuffle. The generic decomposition above would instead
+// zero-upsample X and run a sH x sW conv over it, where all but 1/(sH*sW) of
+// the multiply-adds hit inserted zeros. Learned upsampling layers (e.g. the
+// FPN-style necks of detection networks) are commonly this shape.
+struct DecomposeConvTransposeNonOverlappingPattern
+    : public OpRewritePattern<ONNXConvTransposeOp> {
+  using OpRewritePattern<ONNXConvTransposeOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ONNXConvTransposeOp convTransposeOp,
+      PatternRewriter &rewriter) const final {
+    Location loc = convTransposeOp.getLoc();
+    Value X = convTransposeOp.getX();
+    Value W = convTransposeOp.getW();
+    Value B = convTransposeOp.getB();
+
+    auto xType = mlir::dyn_cast<RankedTensorType>(X.getType());
+    auto wType = mlir::dyn_cast<RankedTensorType>(W.getType());
+    auto yType = mlir::dyn_cast<RankedTensorType>(
+        convTransposeOp.getResult().getType());
+    if (!xType || !wType || !yType || !xType.hasStaticShape() ||
+        !wType.hasStaticShape() || !yType.hasStaticShape() ||
+        xType.getRank() != 4)
+      return failure();
+    if (convTransposeOp.getGroup() != 1 ||
+        convTransposeOp.getOutputShape().has_value())
+      return failure();
+
+    ONNXConvTransposeOpShapeHelper shapeHelper(
+        convTransposeOp.getOperation(), {});
+    if (failed(shapeHelper.computeShape()))
+      return failure();
+    if (!IndexExpr::isLiteral(shapeHelper.kernelShape) ||
+        !IndexExpr::isLiteral(shapeHelper.pads))
+      return failure();
+    for (int64_t i = 0; i < 2; ++i) {
+      if (shapeHelper.kernelShape[i].getLiteral() != shapeHelper.strides[i] ||
+          shapeHelper.dilations[i] != 1 || shapeHelper.outputPadding[i] != 0)
+        return failure();
+    }
+    for (IndexExpr pad : shapeHelper.pads)
+      if (pad.getLiteral() != 0)
+        return failure();
+
+    ArrayRef<int64_t> xShape = xType.getShape();
+    ArrayRef<int64_t> wShape = wType.getShape();
+    const int64_t N = xShape[0], IC = xShape[1], H = xShape[2], Wd = xShape[3];
+    const int64_t OC = wShape[1], sH = wShape[2], sW = wShape[3];
+    if (wShape[0] != IC)
+      return failure();
+    Type elemType = xType.getElementType();
+
+    onnx_mlir::MultiDialectBuilder<onnx_mlir::OnnxBuilder> create(
+        rewriter, loc);
+    auto reshapeTo = [&](Value v, ArrayRef<int64_t> shape) {
+      return create.onnx.reshape(RankedTensorType::get(shape, elemType), v,
+          create.onnx.constantInt64(shape));
+    };
+    auto transposeTo = [&](Value v, ArrayRef<int64_t> perm) {
+      ArrayRef<int64_t> inShape = mlir::cast<ShapedType>(v.getType()).getShape();
+      SmallVector<int64_t, 6> outShape;
+      for (int64_t p : perm)
+        outShape.push_back(inShape[p]);
+      return create.onnx.transpose(RankedTensorType::get(outShape, elemType), v,
+          rewriter.getI64ArrayAttr(perm));
+    };
+
+    // [N, IC, H, W] -> [N*H*W, IC]
+    Value lhs = reshapeTo(transposeTo(X, {0, 2, 3, 1}), {N * H * Wd, IC});
+    // [IC, OC, sH, sW] -> [IC, OC*sH*sW]
+    Value rhs = reshapeTo(W, {IC, OC * sH * sW});
+    Value y = create.onnx.matmul(
+        RankedTensorType::get({N * H * Wd, OC * sH * sW}, elemType), lhs, rhs);
+    if (!isNoneValue(B)) {
+      // B[oc] repeated over its sH*sW block: [OC] -> [OC, 1] -> [OC, sH*sW].
+      Value b = reshapeTo(B, {OC, 1});
+      b = create.onnx.expand(RankedTensorType::get({OC, sH * sW}, elemType), b,
+          create.onnx.constantInt64({OC, sH * sW}));
+      y = create.onnx.add(y, reshapeTo(b, {OC * sH * sW}));
+    }
+    // [N, H, W, OC, sH, sW] -> [N, OC, H, sH, W, sW] -> [N, OC, H*sH, W*sW]
+    y = reshapeTo(y, {N, H, Wd, OC, sH, sW});
+    y = transposeTo(y, {0, 3, 1, 4, 2, 5});
+    y = reshapeTo(y, {N, OC, H * sH, Wd * sW});
+    rewriter.replaceOp(convTransposeOp, y);
+    return success();
+  }
+};
+
 // ConvTransposeOp END
 
 Value normalizeConstantOp(
@@ -1785,6 +1877,9 @@ void onnx_mlir::getDecomposeONNXToONNXPatterns(
   patterns.insert<SoftmaxCrossEntropyPattern>(context);
   patterns.insert<SumToAddPattern>(context);
   patterns.insert<DecomposeConvTransposePattern>(context);
+  // Preferred over the generic zero-upsampling decomposition when it applies.
+  patterns.insert<DecomposeConvTransposeNonOverlappingPattern>(
+      context, /*benefit=*/2);
 
   // Optionally add 1x1 Conv to Matmul andConv to Im2Col+Matmul decomposition.
   if (enableConvToMatmul)
