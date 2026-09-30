@@ -88,6 +88,63 @@ public:
   }
 };
 
+// Pre-opset-18 reduce ops (e.g. ReduceMax/ReduceMin from opset <= 13) carry
+// the axes as an attribute instead of an operand, and have no
+// noop_with_empty_axes: absent axes always mean "reduce all".
+template <typename ONNXReduceOp, typename TosaReduceOp>
+class ONNXReduceAttrAxesOpLoweringToTOSA
+    : public OpConversionPattern<ONNXReduceOp> {
+public:
+  using OpConversionPattern<ONNXReduceOp>::OpConversionPattern;
+  using OpAdaptor = typename ONNXReduceOp::Adaptor;
+  LogicalResult matchAndRewrite(ONNXReduceOp op, OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+
+    Value input = adaptor.getData();
+    auto keepDims = adaptor.getKeepdims();
+
+    auto outputType = mlir::dyn_cast_or_null<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    if (!outputType)
+      return rewriter.notifyMatchFailure(
+          op, "output type not a ranked tensor.");
+
+    RankedTensorType inputType =
+        mlir::dyn_cast<RankedTensorType>(input.getType());
+    if (!inputType)
+      return rewriter.notifyMatchFailure(op, "input type not a ranked tensor.");
+
+    const int64_t rank = inputType.getRank();
+    llvm::SmallVector<int64_t, 4> axesVec;
+    if (std::optional<ArrayAttr> axes = adaptor.getAxes()) {
+      for (Attribute axis : axes.value())
+        axesVec.push_back(mlir::cast<IntegerAttr>(axis).getInt());
+    } else {
+      axesVec.resize(rank);
+      std::iota(std::begin(axesVec), std::end(axesVec), 0);
+    }
+    for (int64_t &axis : axesVec)
+      if (axis < 0)
+        axis += rank;
+
+    const int64_t axesSize = axesVec.size();
+    DenseElementsAttr newAxesAttr = DenseIntElementsAttr::get(
+        RankedTensorType::get({axesSize}, rewriter.getI64Type()), axesVec);
+
+    std::optional<Value> reduced =
+        onnx_mlir::tosa::convertReduceOpCommon<TosaReduceOp>(rewriter, op,
+            outputType, input, newAxesAttr, keepDims,
+            inputType.getElementType());
+
+    if (!reduced.has_value())
+      return rewriter.notifyMatchFailure(
+          op, "could not convert generic reduce op.");
+
+    rewriter.replaceOp(op, {reduced.value()});
+    return success();
+  }
+};
+
 } // namespace
 
 void populateLoweringONNXReduceOpsToTOSAPattern(ConversionTarget &target,
@@ -97,8 +154,11 @@ void populateLoweringONNXReduceOpsToTOSAPattern(ConversionTarget &target,
       ONNXReduceOpLoweringToTOSA<ONNXReduceMaxOp, mlir::tosa::ReduceMaxOp>,
       ONNXReduceOpLoweringToTOSA<ONNXReduceMinOp, mlir::tosa::ReduceMinOp>,
       ONNXReduceOpLoweringToTOSA<ONNXReduceProdOp, mlir::tosa::ReduceProductOp>,
-      ONNXReduceOpLoweringToTOSA<ONNXReduceSumOp, mlir::tosa::ReduceSumOp>>(
-      typeConverter, ctx);
+      ONNXReduceOpLoweringToTOSA<ONNXReduceSumOp, mlir::tosa::ReduceSumOp>,
+      ONNXReduceAttrAxesOpLoweringToTOSA<ONNXReduceMaxV13Op,
+          mlir::tosa::ReduceMaxOp>,
+      ONNXReduceAttrAxesOpLoweringToTOSA<ONNXReduceMinV13Op,
+          mlir::tosa::ReduceMinOp>>(typeConverter, ctx);
 }
 
 } // namespace onnx_mlir
