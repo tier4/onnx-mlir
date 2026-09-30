@@ -143,6 +143,29 @@ public:
       return rewriter.notifyMatchFailure(op, "pads is not a literal.");
     llvm::SmallVector<int64_t, 4> pads;
     IndexExpr::getLiteral(shapeHelper.pads, pads);
+    // tosa.conv2d requires
+    //   (in - 1 + pad_begin + pad_end - (kernel - 1) * dilation) % stride == 0
+    // whereas ONNX floors the output size, so the trailing rows/columns of
+    // the end padding that no window reaches are simply dropped. Trim them
+    // from the end padding; this does not change the result.
+    // ONNX pads order: [h_begin, w_begin, h_end, w_end].
+    auto inputShape = inputType.getShape();
+    for (int64_t d = 0; d < 2; ++d) {
+      const int64_t in = inputShape[2 + d];
+      if (ShapedType::isDynamic(in))
+        continue;
+      const int64_t span = in - 1 + pads[d] + pads[2 + d] -
+                           (weightShape[2 + d] - 1) * shapeHelper.dilations[d];
+      const int64_t rem = span % shapeHelper.strides[d];
+      if (span < 0 || rem == 0)
+        continue;
+      if (pads[2 + d] < rem)
+        return rewriter.notifyMatchFailure(convOp,
+            "output size not divisible by stride and the end padding is too "
+            "small to trim.");
+      pads[2 + d] -= rem;
+    }
+
     // reorder padding values
     DenseI64ArrayAttr newPads =
         rewriter.getDenseI64ArrayAttr({pads[0], pads[2], pads[1], pads[3]});
