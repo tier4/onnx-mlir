@@ -313,3 +313,20 @@ func.func @test_resize_linear_int_disallowed(%arg0: tensor<1x1x2x4xi32>) -> tens
 // CHECK-LABEL:  func.func @test_resize_linear_int_disallowed
 // CHECK:        onnx.Resize
 }
+
+// -----
+
+// An integer-factor nearest upsample with the asymmetric/floor mapping repeats
+// every pixel, so it lowers to reshape -> tile -> reshape instead of tosa.resize.
+func.func @test_resize_nearest_asymmetric_floor_integer_scale(%arg0: tensor<1x8x16x32xf32>) -> tensor<1x8x48x64xf32> {
+  %0 = "onnx.NoValue"() {value} : () -> none
+  %1 = onnx.Constant dense<[1.000000e+00, 1.000000e+00, 3.000000e+00, 2.000000e+00]> : tensor<4xf32>
+  %2 = "onnx.Resize"(%arg0, %0, %1, %0) {coordinate_transformation_mode = "asymmetric", mode = "nearest", nearest_mode = "floor"} : (tensor<1x8x16x32xf32>, none, tensor<4xf32>, none) -> tensor<1x8x48x64xf32>
+  return %2 : tensor<1x8x48x64xf32>
+// CHECK-LABEL:  func.func @test_resize_nearest_asymmetric_floor_integer_scale
+// CHECK-NOT:       tosa.resize
+// CHECK:           tosa.reshape {{.*}} -> tensor<1x8x16x1x32x1xf32>
+// CHECK:           tosa.tile {{.*}} -> tensor<1x8x16x3x32x2xf32>
+// CHECK:           tosa.reshape {{.*}} -> tensor<1x8x48x64xf32>
+// CHECK-NOT:       tosa.resize
+}
