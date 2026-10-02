@@ -71,8 +71,17 @@ public:
         RankedTensorType::get({vecValuesSize}, rewriter.getI64Type()), axesVec);
 
     // reduce_mean is lowered as followed:
-    // op1 = reduce_sum(input)
-    // op2 = mul(op1, 1.0 / num_elements_on_reduced_axis)
+    // op1 = mul(input, 1.0 / num_elements_on_reduced_axis)
+    // op2 = reduce_sum(op1)
+    //
+    // Scaling before summing keeps every partial sum within the range of the
+    // mean itself. Summing first lets the accumulator grow up to N times the
+    // mean, which overflows a narrow float type even when every input and the
+    // mean fit: e.g. a model demoted to f16 downstream (IREE's
+    // --iree-input-demote-f32-to-f16) that averages a large feature map
+    // overflows f16's 65504 range in the sum and propagates inf/NaN. Integer
+    // inputs keep the sum-then-scale order, since scaling first would
+    // truncate every element.
 
     int64_t inputRank = inputType.getRank();
     int64_t numElemsOnReducedAxis = 1;
@@ -85,16 +94,29 @@ public:
     double divScale = 1.0 / static_cast<double>(numElemsOnReducedAxis);
     Type reduceElementType = inputType.getElementType();
 
+    const bool scaleFirst = mlir::isa<FloatType>(reduceElementType);
+    Value reduceInput = input;
+    if (scaleFirst) {
+      Value divConst =
+          tosaBuilder.getSplattedConst(divScale, {}, reduceElementType);
+      reduceInput = tosaBuilder.mul(reduceInput, divConst);
+      if (!reduceInput)
+        return rewriter.notifyMatchFailure(op, "could not scale the input");
+    }
+
     auto val = onnx_mlir::tosa::convertReduceOpCommon<mlir::tosa::ReduceSumOp>(
-        rewriter, op, outputType, input, newAxesAttr, keepDims,
+        rewriter, op, outputType, reduceInput, newAxesAttr, keepDims,
         reduceElementType);
 
     if (!val.has_value())
       return rewriter.notifyMatchFailure(
           op, "could not convert generic reduce op.");
 
-    Value divConst = tosaBuilder.getSplattedConst(divScale);
-    auto output = tosaBuilder.mul(val.value(), divConst);
+    Value output = val.value();
+    if (!scaleFirst) {
+      Value divConst = tosaBuilder.getSplattedConst(divScale);
+      output = tosaBuilder.mul(output, divConst);
+    }
 
     if (!output) {
       return rewriter.notifyMatchFailure(op, "could not be converted");
