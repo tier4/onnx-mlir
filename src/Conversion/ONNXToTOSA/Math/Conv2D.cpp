@@ -200,8 +200,30 @@ public:
 
     // Handle group parameter by creating multiple convs
     const int64_t group = adaptor.getGroup();
+    // A depthwise conv -- one group per input channel, weights
+    // [C * M, 1, KH, KW] -- is exactly tosa.depthwise_conv2d with channel
+    // multiplier M. Lowering it through createConvInGroups would instead emit
+    // C single-channel conv2ds plus a slice per group and a concat, which
+    // later become C tiny dispatches and as many weight slices.
+    const int64_t inChannels = inputShape[1];
+    const bool isDepthwise = group > 1 && group == inChannels &&
+                             weightShape[1] == 1 &&
+                             !ShapedType::isDynamic(weightShape[0]) &&
+                             weightShape[0] % group == 0;
     Value conv2D = NULL;
-    if (group == 1) {
+    if (isDepthwise) {
+      // [C*M, 1, KH, KW] -> [C, M, KH, KW] -> [KH, KW, C, M]
+      const int64_t multiplier = weightShape[0] / group;
+      Value dwWeight = tosaBuilder.reshape(
+          weights, {group, multiplier, weightShape[2], weightShape[3]});
+      dwWeight = tosaBuilder.transpose(dwWeight, {2, 3, 0, 1});
+      Type newConvOutputType = RankedTensorType::get(
+          llvm::SmallVector<int64_t, 4>(4, ShapedType::kDynamic),
+          mlir::cast<ShapedType>(resultType).getElementType());
+      conv2D = tosa::CreateOpAndInfer<mlir::tosa::DepthwiseConv2DOp>(rewriter,
+          convOp->getLoc(), newConvOutputType, newInput, dwWeight, bias,
+          newPads, newStrides, newDilations, accType);
+    } else if (group == 1) {
       Type newConvOutputType = RankedTensorType::get(
           llvm::SmallVector<int64_t, 4>(4, ShapedType::kDynamic),
           mlir::cast<ShapedType>(resultType).getElementType());
