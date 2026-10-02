@@ -245,6 +245,30 @@ public:
       return rewriter.notifyMatchFailure(
           op, "Cannot resize non spatial dimensions.");
 
+    // An integer-factor nearest upsample with the asymmetric/floor mapping
+    // (src = floor(dst / s)) just repeats every pixel s x s times. Express it
+    // as reshape -> tile -> reshape: a plain broadcast copy, instead of
+    // tosa.resize, whose lowering recomputes each output element's source
+    // coordinate with integer divisions and gathers it.
+    if (mode == "nearest" && coordinateTransformationMode == "asymmetric" &&
+        nearestMode == "floor" && outputShape[2] % inputShape[2] == 0 &&
+        outputShape[3] % inputShape[3] == 0) {
+      const int64_t sH = outputShape[2] / inputShape[2];
+      const int64_t sW = outputShape[3] / inputShape[3];
+      Value expanded = tosaBuilder.reshape(input,
+          {inputShape[0], inputShape[1], inputShape[2], 1, inputShape[3], 1});
+      Value multiples = mlir::tosa::getTosaConstShape(
+          rewriter, loc, {1, 1, 1, sH, 1, sW});
+      Value tiled = tosa::CreateOpAndInfer<mlir::tosa::TileOp>(rewriter, loc,
+          RankedTensorType::get(
+              llvm::SmallVector<int64_t, 6>(6, ShapedType::kDynamic),
+              elementType),
+          expanded, multiples);
+      Value result = tosaBuilder.reshape(tiled, outputShape);
+      rewriter.replaceOp(op, result);
+      return success();
+    }
+
     // Get axis values if set. Default is all axis in normal order.
     llvm::SmallVector<int64_t> axisVec;
     if (axis.has_value()) {
